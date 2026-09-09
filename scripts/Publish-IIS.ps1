@@ -174,8 +174,12 @@ function Install-ProjectDependencies {
   $requiredToolchainFiles = @(
     "node_modules\.bin\vite.cmd",
     "node_modules\vite\package.json",
+    "node_modules\vinext\package.json",
     "node_modules\typescript\package.json",
     "node_modules\react\package.json",
+    "node_modules\react-dom\package.json",
+    "node_modules\@cloudflare\vite-plugin\package.json",
+    "node_modules\vite-plugin-wasm\package.json",
     "node_modules\@dimforge\rapier2d-deterministic\package.json"
   )
   $toolchainReady = (Test-Path -LiteralPath $nodeModulesPath) -and -not ($requiredToolchainFiles | Where-Object {
@@ -390,6 +394,12 @@ try {
   Ensure-NodeAndNpm
 
   Install-ProjectDependencies
+
+  Write-Step "Validando o build de producao do ChatGPT Sites"
+  & npm.cmd run build
+  if ($LASTEXITCODE -ne 0) {
+    throw "O build do ChatGPT Sites falhou com o codigo $LASTEXITCODE."
+  }
 
   Write-Step "Compilando a versao estatica para IIS"
   & npm.cmd run build:iis

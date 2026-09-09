@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { createStorageRepository, isRecord } from "./storage";
 import { UI_COPY } from "./ui-copy";
 import { DEFAULT_FORMULA_VEHICLE_SPEC, normalizeVehicleSpec, validateVehicleSpec, type VehicleSpec } from "./domain/vehicle-spec";
+import { DEFAULT_FORMULA_STRATEGY, normalizeStrategyRules, validateStrategyRules, type StrategyRulesV1 } from "./domain/race-strategy";
 import { Brand } from "./ui/brand";
 import { LoadingScreen } from "./ui/loading-screen";
 import { DriverEditor } from "./editor/competition/DriverEditor";
@@ -55,6 +56,7 @@ export type CompetitionCategory = {
   spriteScale?: number;
   lateralScale?: number;
   vehicleSpec: VehicleSpec;
+  strategyRules: StrategyRulesV1;
   version: 2;
   official: boolean;
   updatedAt: string;
@@ -120,6 +122,7 @@ export function createDefaultCategory(): CompetitionCategory {
     spriteScale: 1,
     lateralScale: 1,
     vehicleSpec: { ...DEFAULT_FORMULA_VEHICLE_SPEC },
+    strategyRules: structuredClone(DEFAULT_FORMULA_STRATEGY),
     version: 2,
     official: true,
     updatedAt: new Date().toISOString(),
@@ -132,6 +135,7 @@ export function loadCategories(): CompetitionCategory[] {
     ...category,
     version: 2,
     vehicleSpec: normalizeVehicleSpec(category.vehicleSpec),
+    strategyRules: normalizeStrategyRules(category.strategyRules),
     teams: category.teams.map((team) => ({ ...team, thirdColor: team.thirdColor ?? "#ffffff" })),
     drivers: category.drivers.map((driver, index) => ({ ...driver, id: typeof driver.id === "string" && driver.id ? driver.id : `driver-${index + 1}`, helmetColor: driver.helmetColor ?? HELMET_COLORS[index % HELMET_COLORS.length] })),
   }));
@@ -202,6 +206,7 @@ export function validateCategory(category: CompetitionCategory) {
     [driver.skill, driver.aggression, driver.consistency, driver.cornering, driver.overtaking, driver.defense, driver.risk].forEach((value) => { if (value < 0 || value > 100) errors.push(`Invalid attribute for ${driver.name}.`); });
   });
   errors.push(...validateVehicleSpec(category.vehicleSpec));
+  errors.push(...validateStrategyRules(category.strategyRules));
   return [...new Set(errors)].slice(0, 5);
 }
 
@@ -291,6 +296,8 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
 
   const updateDraft = (next: CompetitionCategory) => { setDraft({ ...next, updatedAt: new Date().toISOString() }); setDirty(true); };
   const updateVehicleSpec = (field: keyof Omit<VehicleSpec, "version">, value: number) => updateDraft({ ...draft, vehicleSpec: { ...draft.vehicleSpec, [field]: value } });
+  const updateStrategyRules = (field: keyof Omit<StrategyRulesV1, "version" | "compounds">, value: number | boolean) => updateDraft({ ...draft, strategyRules: normalizeStrategyRules({ ...draft.strategyRules, [field]: value }) });
+  const updateCompound = (compoundId: string, field: "label" | "grip" | "wearPerLap", value: string | number) => updateDraft({ ...draft, strategyRules: normalizeStrategyRules({ ...draft.strategyRules, compounds: draft.strategyRules.compounds.map((compound) => compound.id === compoundId ? { ...compound, [field]: value } : compound) }) });
   const removeTeam = (team: CompetitionTeam) => {
     const remainingTeams = draft.teams.filter((item) => item.id !== team.id);
     if (!remainingTeams.length) { setMessage(UI_COPY.editor.competition.lastTeamProtected); return; }
@@ -452,6 +459,21 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
               <label><span>{UI_COPY.editor.competition.tireGrip}</span><input type="number" min=".45" max="2.5" step=".01" value={draft.vehicleSpec.tireGrip} onChange={(event) => updateVehicleSpec("tireGrip", Number(event.target.value))} /></label>
               <label><span>{UI_COPY.editor.competition.downforce}</span><input type="number" min="0" max="4" step=".05" value={draft.vehicleSpec.downforceCoefficient} onChange={(event) => updateVehicleSpec("downforceCoefficient", Number(event.target.value))} /></label>
               <label><span>{UI_COPY.editor.competition.steeringLock}</span><input type="number" min="8" max="45" step="1" value={draft.vehicleSpec.maxSteeringDegrees} onChange={(event) => updateVehicleSpec("maxSteeringDegrees", Number(event.target.value))} /></label>
+            </div>
+          </section>
+          <section className="vehicle-spec-panel strategy-rules-panel">
+            <header><strong>RACE STRATEGY RULES</strong><small>Configure tire compounds, fuel behavior, refueling, and pit service for this category.</small></header>
+            <div>
+              {draft.strategyRules.compounds.map((compound) => <label key={compound.id}><span>{compound.label.toUpperCase()} GRIP</span><input type="number" min=".5" max="1.5" step=".01" value={compound.grip} onChange={(event) => updateCompound(compound.id, "grip", Number(event.target.value))} /></label>)}
+              {draft.strategyRules.compounds.map((compound) => <label key={`${compound.id}-wear`}><span>{compound.label.toUpperCase()} WEAR / LAP</span><input type="number" min=".005" max="1" step=".005" value={compound.wearPerLap} onChange={(event) => updateCompound(compound.id, "wearPerLap", Number(event.target.value))} /></label>)}
+              <label><span>FUEL CAPACITY · L</span><input type="number" min="20" max="250" value={draft.strategyRules.fuelCapacityLiters} onChange={(event) => updateStrategyRules("fuelCapacityLiters", Number(event.target.value))} /></label>
+              <label><span>FUEL BURN / LAP · L</span><input type="number" min=".1" max="20" step=".1" value={draft.strategyRules.fuelBurnLitersPerLap} onChange={(event) => updateStrategyRules("fuelBurnLitersPerLap", Number(event.target.value))} /></label>
+              <label><span>MANDATORY STOPS</span><input type="number" min="0" max="3" value={draft.strategyRules.mandatoryStops} onChange={(event) => updateStrategyRules("mandatoryStops", Number(event.target.value))} /></label>
+              <label><span>MINIMUM COMPOUNDS</span><input type="number" min="1" max={draft.strategyRules.compounds.length} value={draft.strategyRules.minimumDistinctCompounds} onChange={(event) => updateStrategyRules("minimumDistinctCompounds", Number(event.target.value))} /></label>
+              <label className="checkbox-field"><input type="checkbox" checked={draft.strategyRules.refuelingAllowed} onChange={(event) => updateStrategyRules("refuelingAllowed", event.target.checked)} /><span>ALLOW REFUELING</span></label>
+              <label><span>REFUEL RATE · L / SEC</span><input type="number" min=".2" max="10" step=".1" value={draft.strategyRules.refuelLitersPerSecond} onChange={(event) => updateStrategyRules("refuelLitersPerSecond", Number(event.target.value))} /></label>
+              <label><span>TIRE CHANGE · SEC</span><input type="number" min=".5" max="20" step=".1" value={draft.strategyRules.tireChangeSeconds} onChange={(event) => updateStrategyRules("tireChangeSeconds", Number(event.target.value))} /></label>
+              <label><span>REPAIR · SEC / DAMAGE</span><input type="number" min=".5" max="30" step=".1" value={draft.strategyRules.repairSecondsPerDamage} onChange={(event) => updateStrategyRules("repairSecondsPerDamage", Number(event.target.value))} /></label>
             </div>
           </section>
           <p className="editor-info">Category {draft.official ? "official and protected" : "custom"}. To modify an official category, use DUPLICATE.</p>

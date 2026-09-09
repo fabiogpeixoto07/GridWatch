@@ -8,15 +8,11 @@ import { SegmentedControl } from "../ui/segmented-control";
 const LAP_OPTIONS = [3, 6, 9, 12];
 
 export function TrackPreview({ track, compact = false }: { track: Circuit; compact?: boolean }) {
-  const path = track.points.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x * 280} ${y * 150}`).join(" ") + " Z";
+  const path = track.points.length ? track.points.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x * 280} ${y * 150}`).join(" ") + " Z" : "";
   return (
     <div className={`track-preview ${compact ? "compact" : ""}`}>
       <svg viewBox="0 0 280 150" role="img" aria-label={UI_COPY.setup.circuitLayout(track.name)}>
-        <path d={path} fill="none" stroke="#cfddc8" strokeWidth="18" strokeLinejoin="round" />
-        <path d={path} fill="none" stroke="#343d40" strokeWidth="11" strokeLinejoin="round" />
-        <path d={path} fill="none" stroke="#f1f3ed" strokeWidth="2.5" strokeDasharray="7 7" strokeLinejoin="round" />
-        <path d={path} fill="none" stroke="#e32f3e" strokeWidth="2.5" strokeDasharray="7 7" strokeDashoffset="7" strokeLinejoin="round" />
-        <circle cx={track.points[0][0] * 280} cy={track.points[0][1] * 150} r="4" fill="#f13b45" stroke="#fff" strokeWidth="1.5" />
+        {path ? <><path d={path} fill="none" stroke="#cfddc8" strokeWidth="18" strokeLinejoin="round" /><path d={path} fill="none" stroke="#343d40" strokeWidth="11" strokeLinejoin="round" /><path d={path} fill="none" stroke="#f1f3ed" strokeWidth="2.5" strokeDasharray="7 7" strokeLinejoin="round" /><path d={path} fill="none" stroke="#e32f3e" strokeWidth="2.5" strokeDasharray="7 7" strokeDashoffset="7" strokeLinejoin="round" /><circle cx={track.points[0][0] * 280} cy={track.points[0][1] * 150} r="4" fill="#f13b45" stroke="#fff" strokeWidth="1.5" /></> : <text x="140" y="78" textAnchor="middle" fill="#65736d" fontSize="12">NO SAVED CIRCUIT</text>}
       </svg>
       {!compact && <div><span>{track.country}</span><strong>{track.name}</strong><small>{UI_COPY.setup.layoutStyle(track.style)}</small></div>}
     </div>

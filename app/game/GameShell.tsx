@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TRACKS, type Circuit } from "../tracks";
-import { loadCustomCircuits, TrackEditor, type EditableCircuit } from "../track-editor";
+import { loadCustomCircuits, loadSavedCircuits, TrackEditor, type EditableCircuit } from "../track-editor";
 import { categoryDrivers, CompetitionEditor, createDefaultCategory, loadCategories, type CompetitionCategory } from "../competition-editor";
 import { analyzeTrack, stepDriving, type DrivingGeometry, type DrivingPhase, type OvertakeState } from "../racing";
 import { buildRaceResultSnapshot, calculateFinishGap, type RaceResultSnapshot } from "../race-results";
@@ -17,6 +17,11 @@ import {
   type ChampionshipPlaybackMode,
 } from "../championship/autoplay-director";
 import { migrateLegacyTrack } from "../domain/track-document";
+import { documentToLegacyCircuit } from "../domain/circuit-document";
+import { clearLegacyCircuitStorage } from "../domain/circuit-repository";
+import { TRACK_CHUNK_TEMPLATE_MAP } from "../track-chunks";
+import { compileCircuitDocument } from "../simulation/circuit-compiler";
+import { advanceRouteController, assignPitBox, beginPitService, completePitService, createRouteController, enterEscapeRoute, registerRouteCar, rejoinMainRoute, requestPitEntry, reverseAtEscapeTerminal, type RouteControllerState } from "../simulation/route-controller";
 import { compileTrack } from "../simulation/track-compiler";
 import { WorldRaceEngine, type WorldRaceCarSnapshot } from "../simulation/world-race-engine";
 import {
@@ -34,6 +39,7 @@ import { LiveTiming } from "../race/LiveTiming";
 import { RaceActionsMenu } from "../race/RaceActionsMenu";
 import { assetRegistry } from "../assets/asset-registry";
 import { BroadcastPanel } from "../race/BroadcastPanel";
+import { createCarStrategyState, DEFAULT_FORMULA_STRATEGY, shouldRequestPitStop, type CarStrategyState, type StrategyRulesV1 } from "../domain/race-strategy";
 type GameMode = "single" | "championship";
 type GameTheme = "dark" | "light";
 const WINNER_PRESENTATION_DURATION_MS = 2_000;
@@ -125,6 +131,7 @@ type CarState = {
   worldX: number | null;
   worldY: number | null;
   worldHeading: number | null;
+  strategy: CarStrategyState;
 };
 
 type TrackSample = {
@@ -177,6 +184,7 @@ const CAR_SCALE_FACTOR = 0.85 * 0.7;
 const RACE_ATTRIBUTE_VARIATION = 5;
 const CURB_OFFSET_FACTOR = 0.42;
 const CURB_LINE_WIDTH = 3.4;
+const EMPTY_TRACK: Circuit = { id: "empty", name: "No circuit created", country: "—", style: "balanced", points: [] };
 
 function seeded(seed: number) {
   const value = Math.sin(seed * 9283.31 + 17.71) * 43758.5453;
@@ -331,7 +339,7 @@ function worldToCanvas(position: { x: number; y: number }, geometry: Geometry) {
   };
 }
 
-function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS): CarState[] {
+function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS, strategyRules: StrategyRulesV1 = DEFAULT_FORMULA_STRATEGY): CarState[] {
   const selected = drivers.slice(0, gridSize)
     .map((driver) => ({ driver, seedKey: stableSeedKey(driver.id), sort: seeded(seed * 19 + stableSeedKey(driver.id) * 137) }))
     .sort((a, b) => a.sort - b.sort);
@@ -398,6 +406,7 @@ function initialCars(gridSize: number, seed: number, totalLaps: number, drivers:
       worldX: null,
       worldY: null,
       worldHeading: null,
+      strategy: createCarStrategyState(strategyRules, seedKey + seed),
     };
   });
 }
@@ -989,7 +998,7 @@ export function GameShell() {
   const simulationAccumulatorRef = useRef(0);
   const geometryRef = useRef<Geometry | null>(null);
   const carsRef = useRef<CarState[]>(initialCars(12, 1, 6));
-  const currentTrackRef = useRef<Circuit>(TRACKS[0]);
+  const currentTrackRef = useRef<Circuit>(EMPTY_TRACK);
   const modeRef = useRef<GameMode | null>(null);
   const raceTimeRef = useRef(0);
   const countdownRef = useRef(3);
@@ -1012,6 +1021,7 @@ export function GameShell() {
   const worldRaceEngineRef = useRef<WorldRaceEngine | null>(null);
   const worldRaceEnginePromiseRef = useRef<Promise<WorldRaceEngine | null> | null>(null);
   const worldRaceEngineGenerationRef = useRef(0);
+  const routeControllerRef = useRef<RouteControllerState | null>(null);
 
   const [screen, setScreen] = useState<MenuScreen>("mode");
   const [gameMode, setGameMode] = useState<GameMode | null>(null);
@@ -1050,7 +1060,7 @@ export function GameShell() {
   const [officialCategory] = useState(createDefaultCategory);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const catalog = useMemo(() => [...TRACKS, ...customTracks], [customTracks]);
-  const currentTrack = catalog[currentTrackIndex] ?? catalog[0] ?? TRACKS[0];
+  const currentTrack = catalog[currentTrackIndex] ?? catalog[0] ?? EMPTY_TRACK;
   const categories = useMemo(() => [officialCategory, ...customCategories], [customCategories, officialCategory]);
   const activeCategory = categories.find((category) => category.id === selectedCategoryId) ?? officialCategory;
   const activeDrivers = useMemo(() => categoryDrivers(activeCategory) as Driver[], [activeCategory]);
@@ -1061,11 +1071,14 @@ export function GameShell() {
   useEffect(() => {
     const controller = new AbortController();
     // Browser storage is restored after hydration to avoid server/client markup divergence.
+    clearLegacyCircuitStorage();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCustomTracks(loadCustomCircuits());
     setCustomCategories(loadCategories());
     setSavedChampionshipSession(championshipSessionRepository.load());
-    void assetRegistry.preloadCritical(controller.signal).finally(() => { if (!controller.signal.aborted) setStorageReady(true); });
+    void Promise.all([assetRegistry.preloadCritical(controller.signal), loadSavedCircuits()]).then(([, circuits]) => {
+      if (!controller.signal.aborted) setCustomTracks(circuits);
+    }).finally(() => { if (!controller.signal.aborted) setStorageReady(true); });
     return () => controller.abort();
   }, []);
 
@@ -1235,7 +1248,17 @@ export function GameShell() {
     worldRaceEngineRef.current?.free();
     worldRaceEngineRef.current = null;
     setWorldEngineState("loading");
-    const trackDocument = migrateLegacyTrack(currentTrackRef.current);
+    const authoredTemplates = currentTrackRef.current.document ? new Map([...TRACK_CHUNK_TEMPLATE_MAP.entries(), ...(currentTrackRef.current.document.embeddedTemplates ?? []).map((template) => [template.id, template] as const)]) : TRACK_CHUNK_TEMPLATE_MAP;
+    const authoredCircuit = currentTrackRef.current.document ? compileCircuitDocument(currentTrackRef.current.document, authoredTemplates) : null;
+    if (authoredCircuit) {
+      routeControllerRef.current = createRouteController(authoredCircuit);
+      for (const car of raceCars) routeControllerRef.current = registerRouteCar(routeControllerRef.current, String(car.id), car.distance);
+    } else {
+      routeControllerRef.current = null;
+    }
+    const trackDocument = authoredCircuit
+      ? migrateLegacyTrack({ ...documentToLegacyCircuit(currentTrackRef.current.document as NonNullable<Circuit["document"]>), points: authoredCircuit.main.samples.map((sample) => [sample.x / currentTrackRef.current.document!.world.widthMeters, sample.y / currentTrackRef.current.document!.world.heightMeters] as const) })
+      : migrateLegacyTrack(currentTrackRef.current);
     const compiledTrack = compileTrack(trackDocument);
     const drivers = raceCars.map((car) => {
         return {
@@ -1270,7 +1293,7 @@ export function GameShell() {
   const resetRace = useCallback((newSeed?: number) => {
     const seed = newSeed ?? sessionSeedRef.current;
     sessionSeedRef.current = seed;
-    carsRef.current = initialCars(selectedGridSize, seed, totalLaps, activeDrivers);
+    carsRef.current = initialCars(selectedGridSize, seed, totalLaps, activeDrivers, activeCategory.strategyRules);
     raceTimeRef.current = 0;
     simulationAccumulatorRef.current = 0;
     countdownRef.current = 3;
@@ -1295,7 +1318,7 @@ export function GameShell() {
     setCountdown(3);
     setRaceStatus("ready");
     if (modeRef.current) initializeWorldRaceEngine(carsRef.current);
-  }, [activeDrivers, initializeWorldRaceEngine, selectedGridSize, totalLaps, setRaceStatus]);
+  }, [activeCategory.strategyRules, activeDrivers, initializeWorldRaceEngine, selectedGridSize, totalLaps, setRaceStatus]);
 
   const rollRaceSeed = useCallback(() => {
     raceSeedSequenceRef.current += 1;
@@ -1303,7 +1326,7 @@ export function GameShell() {
   }, []);
 
   const loadTrack = useCallback((trackIndex: number) => {
-    const nextTrack = catalog[trackIndex] ?? catalog[0] ?? TRACKS[0];
+    const nextTrack = catalog[trackIndex] ?? catalog[0] ?? EMPTY_TRACK;
     currentTrackRef.current = nextTrack;
     geometryRef.current = null;
     setCurrentTrackIndex(trackIndex);
@@ -1327,7 +1350,7 @@ export function GameShell() {
   }, [initAudio, setRaceStatus]);
 
   const beginSingleRace = useCallback(() => {
-    if (!selectedCategoryId) return;
+    if (!selectedCategoryId || !catalog.length) return;
     const seed = rollRaceSeed();
     const trackIndex =
       selectedTrackChoice === "random"
@@ -1347,7 +1370,7 @@ export function GameShell() {
   }, [autoplayDirector, catalog, loadTrack, resetRace, rollRaceSeed, selectedCategoryId, selectedTrackChoice]);
 
   const beginChampionship = useCallback(() => {
-    if (!selectedCategoryId) return;
+    if (!selectedCategoryId || catalog.length < 2) return;
     const seed = rollRaceSeed();
     const raceCount = clamp(Math.round(championshipLength), 2, catalog.length);
     const schedule = shuffledTrackIndices(seed, catalog).slice(0, raceCount);
@@ -1456,6 +1479,7 @@ export function GameShell() {
     worldRaceEngineRef.current?.free();
     worldRaceEngineRef.current = null;
     worldRaceEnginePromiseRef.current = null;
+    routeControllerRef.current = null;
     setWorldEngineState("idle");
     setRaceStatus("ready");
     modeRef.current = null;
@@ -1590,6 +1614,7 @@ export function GameShell() {
     const delta = Math.min(deltaReal, 0.05);
     raceTimeRef.current += delta;
     const currentRaceTime = raceTimeRef.current;
+    if (routeControllerRef.current) routeControllerRef.current = advanceRouteController(routeControllerRef.current, delta, currentRaceTime);
     for (const car of carsRef.current) {
       // The high-frequency simulation state intentionally stays in a mutable ref.
       // eslint-disable-next-line react-hooks/immutability
@@ -1601,13 +1626,21 @@ export function GameShell() {
 
       if (car.mechanical === "failing") {
         const failureAge = currentRaceTime - car.failureStartedAt;
+        car.strategy.damage = Math.min(1, car.strategy.damage + delta * .03);
+        if (routeControllerRef.current && failureAge < delta * 2) routeControllerRef.current = enterEscapeRoute(routeControllerRef.current, car.id);
         car.targetLane = car.failureSide * 1.12;
         car.lane += (car.targetLane - car.lane) * Math.min(1, delta * 1.35);
         car.speed = Math.max(0, car.speed - delta * (0.0062 + failureAge * 0.0014));
         car.distance += car.speed * delta;
         if (car.speed <= 0.00012) {
           car.speed = 0;
-          car.mechanical = "retired";
+          if (routeControllerRef.current?.cars[car.id]?.escapeState === "entering") routeControllerRef.current = reverseAtEscapeTerminal(routeControllerRef.current, car.id);
+          if (routeControllerRef.current?.cars[car.id]?.escapeState === "reversing" && failureAge <= 4) {
+            car.targetLane = 0;
+          } else {
+            if (routeControllerRef.current?.cars[car.id]?.escapeState === "reversing") routeControllerRef.current = rejoinMainRoute(routeControllerRef.current, car.id, car.distance);
+            car.mechanical = "retired";
+          }
         }
         continue;
       }
@@ -1617,6 +1650,38 @@ export function GameShell() {
         car.lane += (car.targetLane - car.lane) * Math.min(1, delta * 0.8);
         car.speed = Math.max(0, car.speed - delta * 0.018);
         continue;
+      }
+
+      const strategyRules = activeCategory.strategyRules;
+      const compound = strategyRules.compounds.find((item) => item.id === car.strategy.compoundId) ?? strategyRules.compounds[0];
+      car.strategy.fuelLiters = Math.max(0, car.strategy.fuelLiters - strategyRules.fuelBurnLitersPerLap * delta * Math.max(.35, car.speed * 2));
+      car.strategy.tireWear = Math.min(1, car.strategy.tireWear + (compound?.wearPerLap ?? .08) * delta * Math.max(.35, car.speed * 2));
+      if (car.strategy.pitService === "on-track" && (shouldRequestPitStop(car.strategy, strategyRules, Math.floor(Math.max(0, car.distance)), totalLaps) || car.strategy.tireWear > .72 || car.strategy.fuelLiters < strategyRules.fuelBurnLitersPerLap * 1.15 || car.strategy.damage > .45)) car.strategy.pitService = "requested";
+      let routeState = routeControllerRef.current;
+      if (routeState && car.strategy.pitService === "requested") {
+        routeState = requestPitEntry(routeState, car.id);
+        routeState = assignPitBox(routeState, car.id);
+        routeControllerRef.current = routeState;
+      }
+      const routeCar = routeState?.cars[car.id];
+      if (routeCar && routeState) {
+        if (routeCar.pitState === "queued") routeState = beginPitService(routeState, car.id, currentRaceTime);
+        routeControllerRef.current = routeState;
+        const activeRouteCar = routeState.cars[car.id];
+        if (activeRouteCar?.pitState === "servicing" && activeRouteCar.serviceStartedAt !== null && currentRaceTime - activeRouteCar.serviceStartedAt >= strategyRules.tireChangeSeconds + car.strategy.damage * strategyRules.repairSecondsPerDamage) {
+          routeState = completePitService(routeState, car.id);
+          routeControllerRef.current = routeState;
+          car.strategy.tireWear = 0;
+          if (strategyRules.refuelingAllowed) car.strategy.fuelLiters = strategyRules.fuelCapacityLiters;
+          car.strategy.damage = 0;
+          car.strategy.pitStops += 1;
+        }
+        const finalRouteCar = routeState.cars[car.id];
+        if (finalRouteCar) {
+          car.strategy.pitService = finalRouteCar.pitState;
+          car.strategy.assignedBoxId = finalRouteCar.assignedBoxId;
+          car.strategy.serviceStartedAt = finalRouteCar.serviceStartedAt;
+        }
       }
 
       if (car.failureAt !== null && car.distance >= car.failureAt) {
@@ -1823,7 +1888,7 @@ export function GameShell() {
       }
       setRaceStatus("finished");
     }
-  }, [activeCategory.name, activeCategory.vehicleSpec.maxSteeringDegrees, activeDrivers, championshipRound, playEffect, setRaceStatus]);
+  }, [activeCategory.name, activeCategory.strategyRules, activeCategory.vehicleSpec.maxSteeringDegrees, activeDrivers, championshipRound, playEffect, setRaceStatus, totalLaps]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -2002,8 +2067,8 @@ export function GameShell() {
     });
   const selectedTrackPreview =
     selectedTrackChoice === "random"
-      ? catalog[randomTrackIndex(2026, undefined, catalog)]
-      : catalog.find((track) => track.id === selectedTrackChoice) ?? catalog[0] ?? TRACKS[0];
+      ? catalog[randomTrackIndex(2026, undefined, catalog)] ?? EMPTY_TRACK
+      : catalog.find((track) => track.id === selectedTrackChoice) ?? catalog[0] ?? EMPTY_TRACK;
   const isFinalChampionshipRound =
     gameMode === "championship" &&
     championshipSchedule.length > 0 &&
@@ -2080,7 +2145,7 @@ export function GameShell() {
           const gapLaps = leader ? leader.distance - car.distance : 0;
           const resultEntry = raceResult?.entries.find((entry) => entry.id === car.id);
           const finalGap = resultEntry?.gapSeconds ?? calculateFinishGap(car.finishedAt, leader?.finishedAt ?? null);
-          return { id: car.id, mechanical: car.mechanical, points: championshipPoints[car.id] ?? 0, gap: index === 0 ? "LEADER" : finalGap !== null ? `+${finalGap.toFixed(3)}` : `+${(gapLaps * 22.8).toFixed(2)}` };
+          return { id: car.id, mechanical: car.mechanical, points: championshipPoints[car.id] ?? 0, gap: index === 0 ? "LEADER" : finalGap !== null ? `+${finalGap.toFixed(3)}` : `+${(gapLaps * 22.8).toFixed(2)}`, compound: activeCategory.strategyRules.compounds.find((compound) => compound.id === car.strategy.compoundId)?.label, tireWear: car.strategy.tireWear, fuelLiters: car.strategy.fuelLiters, pitService: car.strategy.pitService };
         })} />
       </section>
 

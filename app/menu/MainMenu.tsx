@@ -33,7 +33,7 @@ export function MainMenu({ savedSession, circuitCount, driverCount, onSingleRace
           </aside>
         )}
         <div className="mode-options main-options">
-          <button onClick={onSingleRace}>
+          <button onClick={onSingleRace} disabled={circuitCount < 1} aria-disabled={circuitCount < 1}>
             <small>01 · {UI_COPY.menu.quickEvent}</small>
             <strong>{UI_COPY.menu.singleRace}</strong>
             <span>{UI_COPY.menu.singleRaceDescription}</span>
@@ -45,13 +45,15 @@ export function MainMenu({ savedSession, circuitCount, driverCount, onSingleRace
             <span>{UI_COPY.menu.settingsDescription}</span>
             <b>{UI_COPY.navigation.openSettings} <i>→</i></b>
           </button>
-          <button onClick={onChampionship}>
+          <button onClick={onChampionship} disabled={circuitCount < 2} aria-disabled={circuitCount < 2}>
             <small>02 · {UI_COPY.menu.season}</small>
             <strong>{UI_COPY.menu.championship}</strong>
             <span>{UI_COPY.menu.championshipDescription}</span>
             <b>{UI_COPY.navigation.configure} <i>→</i></b>
           </button>
         </div>
+        {circuitCount === 0 && <p className="empty-circuit-notice" role="status">Create and save a valid circuit in Settings → Circuit Editor before starting a race.</p>}
+        {circuitCount === 1 && <p className="empty-circuit-notice" role="status">Create one more valid circuit to unlock Championship mode.</p>}
       </section>
       <footer className="menu-footer">
         <span>{circuitCount} {UI_COPY.menu.circuits}</span><span>{driverCount} {UI_COPY.menu.aiDrivers}</span><span>{UI_COPY.menu.fixedCamera}</span>

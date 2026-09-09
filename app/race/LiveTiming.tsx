@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { UI_COPY } from "../ui-copy";
 
 export type TimingDriver = { id: string | number; code: string; name: string; color: string };
-export type TimingEntry = { id: string; mechanical: "running" | "failing" | "retired"; gap: string; points?: number };
+export type TimingEntry = { id: string; mechanical: "running" | "failing" | "retired"; gap: string; points?: number; compound?: string; tireWear?: number; fuelLiters?: number; pitService?: string };
 
 type LiveTimingProps = {
   currentLap: number;
@@ -23,7 +23,7 @@ export function LiveTiming({ currentLap, entries, drivers, championship, renderC
         return <div className={`driver-row ${index === 0 ? "first" : ""} ${entry.mechanical}`} role="row" key={entry.id}>
           <span className="position">{String(index + 1).padStart(2, "0")}</span><i className="team-color-bar" style={{ background: driver.color }} />
           <span className="timing-car">{renderCar(driver)}</span>
-          <span className="driver-info"><span><strong>{driver.code}</strong><small>{driver.name}{championship ? ` · ${entry.points ?? 0} pts` : ""}</small></span></span>
+          <span className="driver-info"><span><strong>{driver.code}</strong><small>{driver.name}{championship ? ` · ${entry.points ?? 0} pts` : ""}</small><small className="strategy-meta">{entry.compound ? `${entry.compound.toUpperCase()} · ${Math.round((entry.tireWear ?? 0) * 100)}% wear · ${Math.round(entry.fuelLiters ?? 0)} L` : ""}{entry.pitService && entry.pitService !== "on-track" ? ` · ${entry.pitService.toUpperCase()}` : ""}</small></span></span>
           <span className="gap">{entry.mechanical === "retired" ? <em className="dnf">DNF</em> : entry.mechanical === "failing" ? <em className="issue">ISSUE</em> : entry.gap}</span>
         </div>;
       })}</div>

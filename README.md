@@ -23,7 +23,7 @@ The artificial intelligence is a deterministic rules-and-state-machine system. I
 
 ### Event configuration
 
-- 50 shipped circuits.
+- A clean circuit catalog: circuits are created and saved by the player in the Circuit Editor.
 - Selectable official or custom competition categories.
 - 3, 6, 9, or 12 race laps.
 - Configurable grid size based on the selected category.
@@ -57,18 +57,17 @@ The artificial intelligence is a deterministic rules-and-state-machine system. I
 
 ### Circuit editor
 
-The circuit editor currently supports:
+The Circuit Editor is chunk-based rather than point-based. It currently supports:
 
-- Creating custom variants from the shipped circuit catalog.
-- Moving, inserting, duplicating, smoothing, and deleting control points.
-- Selecting the start/finish point and changing overall circuit width.
-- Undo, redo, keyboard shortcuts, zoom, and grid snapping.
-- Intersection checks and compiled-track validation.
-- Boundary, curvature, and surface-grip analysis overlays.
-- Placing, scaling, rotating, locking, and reordering scenery elements.
-- Browser-local saving of custom circuits.
-
-The advanced track domain also models starting grids, timing sectors, surface zones, curbs, runoff, barriers, and pit lanes. Not all of those fields have player-facing editor controls yet.
+- Dragging predefined straights, curves, chicanes, pit-lane, escape, and terminal chunks onto a world-coordinate canvas.
+- Connecting `Input`, `Output`, `Secondary Input`, and `Secondary Output` ports with tangent-aware snapping.
+- Closed-loop validation: every ordinary chunk must have a connected input and output, and the main route must return to its start/finish anchor.
+- Generated racing lines that the player can edit and confirm before saving.
+- Starting-grid and pit-box placement, including shared pit-box route metadata.
+- Per-chunk curb modes: none, left only, right only, or both sides.
+- Versioned SVG chunk imports with script, external-reference, and event-handler safeguards.
+- Zoom and grid snapping without changing persisted circuit aspect, size, or layout.
+- Browser-local IndexedDB persistence for circuits and imported chunks.
 
 ### Competition editor
 
@@ -85,13 +84,9 @@ The competition editor currently supports:
 
 ## Circuit catalog
 
-GridWatch ships with one fictional circuit, Northstar, and 49 named real-world venues. The named layouts are normalized 2D representations rather than survey-accurate reproductions:
+The shipped circuit catalog is intentionally empty. This clean-slate flow makes the Circuit Editor the source of truth: a race becomes available after the player saves a valid closed circuit with a confirmed racing line, starting grid, and pit-box definition.
 
-- 31 currently use normalized centerlines from the MIT-licensed `bacinger/f1-circuits` dataset.
-- 14 use curated local approximations.
-- 4 use specially tuned local layouts in preference to their dataset versions.
-
-The result is a broad, recognizable catalog designed for the full-circuit spectator presentation. Elevation, banking, and exact real-world scale are not currently represented.
+The built-in chunk kit is backed by the versioned `/public/assets/track-chunks.svg` atlas. Imported SVG chunks are stored separately in IndexedDB and remain reusable across circuits.
 
 ## Engine and technology
 
@@ -131,7 +126,7 @@ The Cloudflare Worker in `worker/` is the application hosting entry point. It is
 
 The playable product is currently local-first:
 
-- Custom circuits and categories are stored in `localStorage`.
+- Circuits and imported SVG chunks are stored in IndexedDB; the old localStorage circuit catalog is cleared by a one-time migration marker.
 - Competition drafts and championship recovery are stored locally.
 - The selected theme is stored locally.
 - No account is required to play.
@@ -148,7 +143,7 @@ The current product does not include:
 - Career progression.
 - VR support.
 - Qualifying sessions.
-- Pit strategy, tire wear, or fuel strategy.
+- Online pit strategy, tire wear, or fuel strategy authoring outside the category rules editor.
 - Dynamic weather or safety-car behavior.
 - Elevation and banking.
 - A usable replay recording or playback interface.
@@ -168,9 +163,9 @@ The current product does not include:
 
 ### Known gaps and risks
 
-- Custom circuit scenery is visible in the editor but is not yet rendered in races.
-- The race runtime remigrates the legacy circuit shape instead of consuming every saved advanced track-document field.
-- Pit lanes, timing-sector editing, surface-zone editing, and several other advanced track fields are foundations rather than complete features.
+- Imported SVG scenery is authored and persisted as chunk art; full decorative scenery rendering remains outside the race canvas.
+- The runtime compiles the authored chunk document into the existing physical-track adapter while the route graph is kept alongside it for pit/escape state transitions.
+- Timing-sector and surface-zone authoring remain outside the current chunk editor.
 - Competition sprite-scale controls affect editor previews but not live race rendering.
 - Vehicle `reliability` and `brakeBias` are modeled but do not currently affect race behavior.
 - Race defaults and the general audio preference do not persist across a normal page reload; championship recovery stores an audio flag but does not restore it.
@@ -186,7 +181,7 @@ The current product does not include:
 
 GridWatch should currently be treated as a working alpha. The highest-priority development work is:
 
-1. Connect the complete circuit and competition documents to the live race renderer and simulation.
+1. Promote the authored route graph to the sole live-race geometry source instead of using the compatibility adapter.
 2. Make every exposed editor and settings control have a persistent, observable runtime effect.
 3. Split lifecycle, simulation, rendering, audio, persistence, and championship orchestration into clearer boundaries.
 4. Replace source-pattern contracts with behavioral, persistence, accessibility, and complete-event tests.
@@ -230,7 +225,7 @@ During the project assessment on 2026-09-08, `npm run verify` completed successf
 - TypeScript and ESLint passed.
 - 12 versioned runtime assets were validated.
 - The Cloudflare/Sites and IIS production builds passed.
-- 48 Node tests passed.
+- 52 Node tests passed, including chunk-document, route-controller, and strategy coverage.
 - 1 Playwright Chromium test passed.
 
 This baseline confirms that the checked-in implementation builds and that its core deterministic simulation contracts are healthy. It does not replace complete gameplay, accessibility, compatibility, security, or release acceptance testing.

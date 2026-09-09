@@ -446,6 +446,42 @@
         "author": "GridWatch Studio",
         "license": "Project asset"
       }
+    },
+    {
+      "id": "track.chunks.default",
+      "family": "track-chunk",
+      "view": "atlas",
+      "path": "/assets/track-chunks.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": true,
+      "sourceRevision": "chunk-v1",
+      "bytes": 7697,
+      "contentHash": "8743669ce0e8e4c1",
+      "viewBox": "0 0 1200 720",
+      "dimensions": {
+        "width": 1200,
+        "height": 720
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "atlas",
+      "themeVariants": {
+        "dark": "/assets/track-chunks.svg",
+        "light": "/assets/track-chunks.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "critical",
+      "lodVariants": [],
+      "fallbackAsset": "track.materials.default",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
     }
   ],
   "carSprites": {
