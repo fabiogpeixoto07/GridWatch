@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 256">
+  <symbol id="tree" viewBox="0 0 64 64"><ellipse cx="34" cy="56" rx="25" ry="6" fill="#25302b" opacity=".22"/><rect x="29" y="34" width="8" height="24" rx="3" fill="#795443"/><circle cx="22" cy="28" r="17" fill="#4d9258"/><circle cx="43" cy="25" r="20" fill="#5d9f55"/><circle cx="32" cy="12" r="18" fill="#75a85b"/><circle cx="25" cy="9" r="4" fill="#d9efc8" opacity=".5"/></symbol>
+  <symbol id="shrub" viewBox="0 0 64 64"><ellipse cx="32" cy="53" rx="24" ry="6" fill="#25302b" opacity=".2"/><circle cx="21" cy="34" r="15" fill="#5e954c"/><circle cx="39" cy="29" r="19" fill="#75a85b"/><circle cx="50" cy="38" r="12" fill="#4d9258"/></symbol>
+  <symbol id="lake" viewBox="0 0 96 56"><ellipse cx="48" cy="28" rx="43" ry="21" fill="#80c9d1" stroke="#e7f5eb" stroke-width="4"/><path d="M20 25h22m10 0h22M28 35h18m8 0h14" stroke="#d8f3ed" stroke-width="3" opacity=".75"/></symbol>
+  <symbol id="grandstand" viewBox="0 0 112 48"><rect x="4" y="6" width="104" height="36" rx="4" fill="#d8dee0" stroke="#78858a" stroke-width="3"/><path d="M14 15h84M14 24h84M14 33h84" stroke="#869398" stroke-width="4"/></symbol>
+  <symbol id="pits" viewBox="0 0 104 42"><rect x="4" y="6" width="96" height="30" rx="4" fill="#f2f1e9" stroke="#606e71" stroke-width="3"/><path d="M24 8v26M46 8v26M68 8v26M90 8v26" stroke="#ef4650" stroke-width="3"/></symbol>
+  <symbol id="tower" viewBox="0 0 48 80"><rect x="12" y="15" width="24" height="52" fill="#e6e6dd" stroke="#59686b" stroke-width="3"/><path d="M6 15h36M8 7h32" stroke="#59686b" stroke-width="4"/></symbol>
+  <symbol id="building" viewBox="0 0 72 64"><rect x="5" y="6" width="62" height="52" rx="4" fill="#d8d9d1" stroke="#697578" stroke-width="3"/><path d="M16 18h15v14H16zM42 18h15v14H42z" fill="#8bb1b4"/></symbol>
+  <symbol id="barrier" viewBox="0 0 112 24"><rect x="5" y="7" width="102" height="10" rx="3" fill="#e9e7d9" stroke="#e4424c" stroke-width="4" stroke-dasharray="12 9"/></symbol>
+  <symbol id="sign" viewBox="0 0 64 72"><rect x="8" y="5" width="48" height="30" rx="3" fill="#e8424c"/><path d="M32 35v32" stroke="#59686b" stroke-width="5"/></symbol>
+  <symbol id="lamp" viewBox="0 0 48 80"><path d="M24 8v62M14 25h20M14 43h20" stroke="#6b7d80" stroke-width="4"/><circle cx="24" cy="8" r="8" fill="#fff2b5"/></symbol>
+</svg>

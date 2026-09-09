@@ -1,0 +1,505 @@
+{
+  "version": 2,
+  "coordinateSystem": "top-down",
+  "assetVersion": "2026.08.1",
+  "lighting": {
+    "direction": "upper-left",
+    "shadowDirection": "lower-right",
+    "colorSpace": "srgb"
+  },
+  "paletteMasks": {
+    "blue": "teamPrimary",
+    "green": "teamSecondary",
+    "white": "teamThird",
+    "red": "driverHelmet",
+    "yellow": "transparent"
+  },
+  "assets": [
+    {
+      "id": "formula.default.top",
+      "family": "car",
+      "view": "top",
+      "path": "/assets/sprites/formula-default-top.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": true,
+      "preload": true,
+      "sourceRevision": "formula-v2",
+      "bytes": 647,
+      "contentHash": "9acf35ccdd77d329",
+      "viewBox": "0 0 120 160",
+      "dimensions": {
+        "width": 120,
+        "height": 160
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "top",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-default-top.svg",
+        "light": "/assets/sprites/formula-default-top.svg"
+      },
+      "paletteMaskSupport": true,
+      "preloadPriority": "critical",
+      "lodVariants": [],
+      "fallbackAsset": null,
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "formula.default.lateral",
+      "family": "car",
+      "view": "lateral",
+      "path": "/assets/sprites/formula-default-lateral.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": true,
+      "preload": true,
+      "sourceRevision": "formula-v2",
+      "bytes": 707,
+      "contentHash": "4a203ac1138ff07f",
+      "viewBox": "0 0 260 96",
+      "dimensions": {
+        "width": 260,
+        "height": 96
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "lateral",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-default-lateral.svg",
+        "light": "/assets/sprites/formula-default-lateral.svg"
+      },
+      "paletteMaskSupport": true,
+      "preloadPriority": "critical",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "formula.solaris.lateral",
+      "family": "car-livery",
+      "view": "lateral",
+      "path": "/assets/sprites/formula-solaris-lateral.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": false,
+      "sourceRevision": "livery-v1",
+      "bytes": 720,
+      "contentHash": "35fa565772886468",
+      "viewBox": "0 0 260 96",
+      "dimensions": {
+        "width": 260,
+        "height": 96
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "lateral",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-solaris-lateral.svg",
+        "light": "/assets/sprites/formula-solaris-lateral.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "on-demand",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "formula.solaris.top",
+      "family": "car-livery",
+      "view": "top",
+      "path": "/assets/sprites/formula-solaris-top.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": false,
+      "sourceRevision": "livery-v1",
+      "bytes": 853,
+      "contentHash": "90b4943e84840765",
+      "viewBox": "0 0 120 160",
+      "dimensions": {
+        "width": 120,
+        "height": 160
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "top",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-solaris-top.svg",
+        "light": "/assets/sprites/formula-solaris-top.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "on-demand",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "formula.velox.lateral",
+      "family": "car-livery",
+      "view": "lateral",
+      "path": "/assets/sprites/formula-velox-lateral.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": false,
+      "sourceRevision": "livery-v1",
+      "bytes": 720,
+      "contentHash": "cc2ee41ada5645cd",
+      "viewBox": "0 0 260 96",
+      "dimensions": {
+        "width": 260,
+        "height": 96
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "lateral",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-velox-lateral.svg",
+        "light": "/assets/sprites/formula-velox-lateral.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "on-demand",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "formula.velox.top",
+      "family": "car-livery",
+      "view": "top",
+      "path": "/assets/sprites/formula-velox-top.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": false,
+      "sourceRevision": "livery-v1",
+      "bytes": 845,
+      "contentHash": "be5da48ecc13c41c",
+      "viewBox": "0 0 120 160",
+      "dimensions": {
+        "width": 120,
+        "height": 160
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "top",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-velox-top.svg",
+        "light": "/assets/sprites/formula-velox-top.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "on-demand",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "formula.apex.lateral",
+      "family": "car-livery",
+      "view": "lateral",
+      "path": "/assets/sprites/formula-apex-lateral.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": false,
+      "sourceRevision": "livery-v1",
+      "bytes": 720,
+      "contentHash": "eec1e942926e0640",
+      "viewBox": "0 0 260 96",
+      "dimensions": {
+        "width": 260,
+        "height": 96
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "lateral",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-apex-lateral.svg",
+        "light": "/assets/sprites/formula-apex-lateral.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "on-demand",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "formula.apex.top",
+      "family": "car-livery",
+      "view": "top",
+      "path": "/assets/sprites/formula-apex-top.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": false,
+      "sourceRevision": "livery-v1",
+      "bytes": 849,
+      "contentHash": "432de4518a6d3da8",
+      "viewBox": "0 0 120 160",
+      "dimensions": {
+        "width": 120,
+        "height": 160
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "top",
+      "themeVariants": {
+        "dark": "/assets/sprites/formula-apex-top.svg",
+        "light": "/assets/sprites/formula-apex-top.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "on-demand",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "vehicle.effects.default",
+      "family": "vehicle-effects",
+      "view": "atlas",
+      "path": "/assets/generated/vehicle-effects.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": true,
+      "sourceRevision": "effects-v1",
+      "bytes": 768,
+      "contentHash": "358e93bc2b05f310",
+      "viewBox": "0 0 512 128",
+      "dimensions": {
+        "width": 512,
+        "height": 128
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "atlas",
+      "themeVariants": {
+        "dark": "/assets/generated/vehicle-effects.svg",
+        "light": "/assets/generated/vehicle-effects.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "critical",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "helmet.variants.default",
+      "family": "helmet",
+      "view": "atlas",
+      "path": "/assets/generated/helmet-variants.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": true,
+      "sourceRevision": "helmet-v1",
+      "bytes": 673,
+      "contentHash": "027997c9d58f908b",
+      "viewBox": "0 0 320 80",
+      "dimensions": {
+        "width": 320,
+        "height": 80
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "atlas",
+      "themeVariants": {
+        "dark": "/assets/generated/helmet-variants.svg",
+        "light": "/assets/generated/helmet-variants.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "critical",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "track.materials.default",
+      "family": "track-material",
+      "view": "atlas",
+      "path": "/assets/track-materials.svg",
+      "anchor": [
+        0,
+        0
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": true,
+      "sourceRevision": "materials-v1",
+      "bytes": 3384,
+      "contentHash": "df315df84c87815d",
+      "viewBox": "0 0 256 256",
+      "dimensions": {
+        "width": 256,
+        "height": 256
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "atlas",
+      "themeVariants": {
+        "dark": "/assets/track-materials.svg",
+        "light": "/assets/track-materials.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "critical",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    },
+    {
+      "id": "scenery.default",
+      "family": "scenery",
+      "view": "atlas",
+      "path": "/assets/scenery-atlas.svg",
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "recommendedScale": 1,
+      "tintable": false,
+      "preload": true,
+      "sourceRevision": "scenery-v1",
+      "bytes": 2334,
+      "contentHash": "5956632c8688c15d",
+      "viewBox": "0 0 640 256",
+      "dimensions": {
+        "width": 640,
+        "height": 256
+      },
+      "variant": "default",
+      "defaultScale": 1,
+      "viewDirection": "atlas",
+      "themeVariants": {
+        "dark": "/assets/scenery-atlas.svg",
+        "light": "/assets/scenery-atlas.svg"
+      },
+      "paletteMaskSupport": false,
+      "preloadPriority": "critical",
+      "lodVariants": [],
+      "fallbackAsset": "formula.default.top",
+      "attribution": {
+        "author": "GridWatch Studio",
+        "license": "Project asset"
+      }
+    }
+  ],
+  "carSprites": {
+    "top": {
+      "id": "formula.default.top",
+      "path": "/assets/sprites/formula-default-top.svg",
+      "recommendedScale": 1,
+      "tintable": true,
+      "preload": true
+    },
+    "lateral": {
+      "id": "formula.default.lateral",
+      "path": "/assets/sprites/formula-default-lateral.svg",
+      "recommendedScale": 1,
+      "tintable": true,
+      "preload": true
+    },
+    "liveries": [
+      "/assets/sprites/formula-solaris-lateral.svg",
+      "/assets/sprites/formula-velox-lateral.svg",
+      "/assets/sprites/formula-apex-lateral.svg"
+    ]
+  },
+  "materials": {
+    "asphalt": {
+      "assetId": "track.materials.default",
+      "procedural": true,
+      "baseColor": "#2f373a",
+      "roughness": 0.86
+    },
+    "curb": {
+      "assetId": "track.materials.default",
+      "procedural": true,
+      "primaryColor": "#f4f1e8",
+      "secondaryColor": "#d82c36"
+    },
+    "grass": {
+      "assetId": "track.materials.default",
+      "procedural": true,
+      "baseColor": "#d7e7cb",
+      "roughness": 0.94
+    }
+  },
+  "sceneryAtlas": "/assets/scenery-atlas.svg",
+  "scenery": [
+    "tree",
+    "shrub",
+    "lake",
+    "grandstand",
+    "pits",
+    "tower",
+    "building",
+    "barrier",
+    "sign",
+    "lamp"
+  ]
+}

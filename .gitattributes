@@ -1,0 +1,7 @@
+assets-src/source-manifest.json text eol=lf
+public/assets/*.svg text eol=lf
+public/assets/**/*.svg text eol=lf
+public/assets/gridwatch-asset-manifest.json text eol=lf
+iis/public/assets/*.svg text eol=lf
+iis/public/assets/**/*.svg text eol=lf
+iis/public/assets/gridwatch-asset-manifest.json text eol=lf

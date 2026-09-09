@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160" role="img" aria-label="Solaris top-view formula car">
+  <ellipse cx="63" cy="84" rx="34" ry="72" fill="#050707" opacity=".28"/>
+  <path d="M31 38h58v8H31zM27 118h66v9H27z" fill="#111718"/>
+  <path d="M60 7 78 42 73 128 60 151 47 128 42 42z" fill="#ffb703" stroke="#151b1b" stroke-width="3"/>
+  <path d="M60 12 67 50 63 119 57 119 53 50z" fill="#fff2b8" opacity=".88"/>
+  <path d="M43 72h34v15H43z" fill="#161c1c"/>
+  <path d="M47 96h26l-4 31H51z" fill="#d99300"/>
+  <circle cx="60" cy="56" r="9" fill="#f7f8ef" stroke="#161c1c" stroke-width="3"/>
+  <path d="M45 37h30M48 132h24" stroke="#fff7cf" stroke-width="2" opacity=".75"/>
+  <g fill="#050707"><circle cx="38" cy="45" r="10"/><circle cx="82" cy="45" r="10"/><circle cx="38" cy="119" r="11"/><circle cx="82" cy="119" r="11"/></g>
+</svg>

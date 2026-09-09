@@ -1,0 +1,31 @@
+import { useMemo, useState } from "react";
+import type { CompetitionCategory, CompetitionDriver } from "../../competition-editor";
+import { UI_COPY } from "../../ui-copy";
+
+type Attribute = "skill" | "aggression" | "consistency" | "cornering" | "overtaking" | "defense" | "risk";
+const ATTRIBUTES: Attribute[] = ["skill", "aggression", "consistency", "cornering", "overtaking", "defense", "risk"];
+const PRESETS: Record<string, Record<Attribute, number>> = {
+  balanced: { skill: 78, aggression: 70, consistency: 78, cornering: 78, overtaking: 74, defense: 74, risk: 55 },
+  qualifying: { skill: 92, aggression: 75, consistency: 70, cornering: 94, overtaking: 68, defense: 65, risk: 72 },
+  consistent: { skill: 80, aggression: 58, consistency: 96, cornering: 82, overtaking: 68, defense: 72, risk: 35 },
+  attacker: { skill: 82, aggression: 94, consistency: 70, cornering: 82, overtaking: 95, defense: 66, risk: 88 },
+  defender: { skill: 80, aggression: 76, consistency: 82, cornering: 78, overtaking: 64, defense: 96, risk: 58 },
+  rookie: { skill: 65, aggression: 68, consistency: 58, cornering: 65, overtaking: 60, defense: 58, risk: 70 },
+};
+const HELP: Record<Attribute, string> = { skill: "Control precision and pace ceiling", cornering: "Grip utilization and apex accuracy", consistency: "Variance and mistake probability", overtaking: "Attack timing and side-by-side control", aggression: "Willingness to attempt marginal moves", defense: "Positioning and reaction", risk: "Tolerance for low-clearance and low-grip actions" };
+
+type Props = { category: CompetitionCategory; selectedId: string; onSelect: (id: string) => void; onChange: (category: CompetitionCategory) => void; onDuplicate: (driver: CompetitionDriver) => void; onMove: (id: string, offset: -1 | 1) => void };
+export function DriverEditor({ category, selectedId, onSelect, onChange, onDuplicate, onMove }: Props) {
+  const [query, setQuery] = useState("");
+  const driver = category.drivers.find((item) => item.id === selectedId);
+  const shown = useMemo(() => category.drivers.filter((item) => `${item.code} ${item.name}`.toLowerCase().includes(query.toLowerCase())), [category.drivers, query]);
+  const update = (changes: Partial<CompetitionDriver>) => driver && onChange({ ...category, drivers: category.drivers.map((item) => item.id === driver.id ? { ...item, ...changes } : item) });
+  const averages = Object.fromEntries(ATTRIBUTES.map((attribute) => [attribute, category.drivers.reduce((sum, item) => sum + item[attribute], 0) / Math.max(1, category.drivers.length)])) as Record<Attribute, number>;
+  const addDriver = () => { const id = `driver-${Date.now()}`; const used = new Set(category.drivers.map((item) => item.number)); let number = 1; while (used.has(number)) number += 1; onChange({ ...category, drivers: [...category.drivers, { id, code: "NEW", name: "New Driver", teamId: category.teams[0]?.id ?? "", color: category.primaryColor, accent: category.secondaryColor, helmetColor: "#ffffff", number, ...PRESETS.balanced }] }); onSelect(id); };
+  return <div className="driver-editor"><div className="driver-list"><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search drivers" aria-label="Search drivers" />{shown.map((item) => <button key={item.id} className={item.id === selectedId ? "active" : ""} onClick={() => onSelect(item.id)}>{item.code}<small>{item.name}</small></button>)}<button className="add-row" onClick={addDriver}>+ DRIVER</button></div>{driver && <div className="driver-form">
+    <label><span>NAME</span><input value={driver.name} onChange={(event) => update({ name: event.target.value })} /></label><label><span>CODE</span><input value={driver.code} maxLength={4} onChange={(event) => update({ code: event.target.value.toUpperCase() })} /></label><label><span>TEAM</span><select value={driver.teamId} onChange={(event) => update({ teamId: event.target.value })}>{category.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label><label><span>NUMBER</span><input type="number" value={driver.number} onChange={(event) => update({ number: Number(event.target.value) })} /></label><label><span>HELMET COLOR</span><input type="color" value={driver.helmetColor} onChange={(event) => update({ helmetColor: event.target.value })} /></label>
+    <div className="driver-presets" aria-label="Driver archetype presets">{Object.entries(PRESETS).map(([name, preset]) => <button key={name} onClick={() => update(preset)}>{name.toUpperCase()}</button>)}</div>
+    <div className="attribute-grid">{ATTRIBUTES.map((attribute) => <label key={attribute} title={HELP[attribute]}><span>{attribute.toUpperCase()} · FIELD {averages[attribute].toFixed(0)}</span><input type="range" min="0" max="100" value={driver[attribute]} onChange={(event) => update({ [attribute]: Number(event.target.value) })} /><input type="number" min="0" max="100" value={driver[attribute]} onChange={(event) => update({ [attribute]: Math.max(0, Math.min(100, Number(event.target.value))) })} /><small>{HELP[attribute]}</small></label>)}</div>
+    <div className="driver-form-actions"><button disabled={category.drivers[0]?.id === driver.id} aria-label={`${UI_COPY.editor.competition.moveUp} ${driver.name}`} onClick={() => onMove(driver.id, -1)}>↑</button><button disabled={category.drivers.at(-1)?.id === driver.id} aria-label={`${UI_COPY.editor.competition.moveDown} ${driver.name}`} onClick={() => onMove(driver.id, 1)}>↓</button><button onClick={() => onDuplicate(driver)}>{UI_COPY.editor.competition.duplicateDriver}</button><button className="danger-button" onClick={() => { onChange({ ...category, drivers: category.drivers.filter((item) => item.id !== driver.id) }); onSelect(category.drivers.find((item) => item.id !== driver.id)?.id ?? ""); }}>REMOVE DRIVER</button></div>
+  </div>}</div>;
+}

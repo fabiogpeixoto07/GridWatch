@@ -1,0 +1,59 @@
+{
+  "name": "ai-racing-spectator",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "install:ci": "npm ci",
+    "dev": "node scripts/run-with-env.mjs vite",
+    "build": "node scripts/build-verified.mjs",
+    "build:iis": "node scripts/sync-assets.mjs --check && vite build --config vite.iis.config.ts",
+    "start": "node scripts/run-with-env.mjs vinext start",
+    "test": "npm run build && npm run build:iis && npm run test:contracts:built && npm run test:browser:built",
+    "test:contracts": "npm run build && npm run build:iis && npm run test:contracts:built",
+    "test:contracts:built": "node --test tests/racing.test.mjs tests/domain.test.mjs tests/simulation.test.mjs tests/sprint-01-architecture-contracts.test.mjs tests/rendered-html.test.mjs tests/quality-contracts.test.mjs tests/performance-contracts.test.mjs tests/static-smoke.test.mjs",
+    "test:unit": "node --test tests/racing.test.mjs tests/domain.test.mjs tests/simulation.test.mjs tests/sprint-01-architecture-contracts.test.mjs",
+    "test:browser": "npm run build:iis && npm run test:browser:built",
+    "test:browser:built": "playwright test tests/browser-smoke.spec.ts",
+    "baseline:measure": "node scripts/measure-baseline.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run lint && npm run assets:validate && npm run build && npm run build:iis && npm run test:contracts:built && npm run test:browser:built",
+    "assets:sync": "node scripts/sync-assets.mjs",
+    "assets:validate": "node scripts/sync-assets.mjs --check",
+    "validate:artifact": "node scripts/validate-artifact.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern iis-dist --ignore-pattern .next",
+    "db:generate": "node scripts/run-with-env.mjs drizzle-kit generate"
+  },
+  "dependencies": {
+    "@dimforge/rapier2d-deterministic": "^0.19.3",
+    "drizzle-orm": "0.45.2",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@dimforge/rapier2d-deterministic-compat": "^0.19.3",
+    "@playwright/test": "1.62.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "vite-plugin-wasm": "^3.6.0",
+    "wrangler": "4.92.0"
+  },
+  "type": "module",
+  "displayName": "AI Racing Spectator"
+}

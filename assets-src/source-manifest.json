@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "families": ["cars", "helmets", "track-materials", "scenery", "ui", "effects", "audio"],
+  "runtimeOutput": "public/assets/generated",
+  "policy": "Editable originals live under assets-src; generated runtime exports are synchronized by scripts/sync-assets.mjs."
+}
