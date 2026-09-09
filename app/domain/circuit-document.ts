@@ -31,6 +31,8 @@ export type TrackChunkTemplateV1 = {
   assetPath: string;
   assetSymbol?: string;
   viewBox: { width: number; height: number };
+  /** Coordinate bounds used by the SVG symbol so artwork and connectors share one origin. */
+  assetViewBox?: { x: number; y: number; width: number; height: number };
   widthMeters: number;
   lengthMeters: number;
   connectors: CircuitConnector[];

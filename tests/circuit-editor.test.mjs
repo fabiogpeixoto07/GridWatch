@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -84,4 +84,19 @@ test("strategy rules request service for mandatory stops and worn tires", () => 
   assert.equal(strategy.shouldRequestPitStop(state, rules, 1, 10), true);
   state.tireWear = .8;
   assert.equal(strategy.shouldRequestPitStop(state, rules, 0, 10), true);
+});
+
+test("editor uses the SVG screen transform for drop and drag coordinates", async () => {
+  const source = await readFile(new URL("../app/track-editor.tsx", import.meta.url), "utf8");
+  assert.match(source, /getScreenCTM\(\)/);
+  assert.match(source, /addChunk\(id, worldPoint\(event\)\)/);
+  assert.doesNotMatch(source, /worldPoint\(event as unknown as React\.PointerEvent<SVGSVGElement>\)/);
+});
+
+test("editor renders connector overlays in the chunk's local coordinate system", async () => {
+  const source = await readFile(new URL("../app/track-editor.tsx", import.meta.url), "utf8");
+  assert.match(source, /const point = connector;/);
+  assert.match(source, /<text x=\{0\} y=\{-18\}/);
+  assert.match(source, /pointerEvents="all"/);
+  assert.match(source, /setPointerCapture\(event\.pointerId\)/);
 });
