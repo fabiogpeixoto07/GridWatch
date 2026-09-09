@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 echo ============================================================
-echo   AI Racing Spectator - Instalacao e publicacao no IIS
+echo        GridWatch - Instalation and IIS Publishing
 echo ============================================================
 echo.
 
