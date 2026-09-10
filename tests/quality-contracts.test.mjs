@@ -40,6 +40,9 @@ test("editors expose destructive-action and asset safeguards", async () => {
   assert.match(category, /isCategoryDocument/);
   assert.match(category, /useId\(\)/);
   assert.match(category, /if \(draft\.official\)/);
+  assert.match(category, /COMPETITION_EXPORT_FORMAT/);
+  assert.match(category, /serializeCompetition/);
+  assert.match(category, /importedCompetition/);
   assert.match(category, /UI_COPY\.editor\.competition\.protectedSave/);
   assert.match(category, /teamCodes/);
   assert.match(category, /moveTeam/);

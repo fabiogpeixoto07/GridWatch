@@ -63,6 +63,8 @@ export type CompetitionCategory = {
 };
 
 const STORAGE_KEY = "gridwatch.competition-categories";
+const COMPETITION_EXPORT_FORMAT = "gridwatch-competition";
+const COMPETITION_EXPORT_VERSION = 1;
 const categoryRepository = createStorageRepository(STORAGE_KEY, [], isCategoryArray);
 const draftRepository = createStorageRepository<CompetitionCategory | null>(`${STORAGE_KEY}.draft`, null, (value): value is CompetitionCategory | null => value === null || isCategoryDocument(value));
 const roster = [
@@ -145,7 +147,7 @@ function isCategoryArray(value: unknown): value is CompetitionCategory[] {
   return Array.isArray(value) && value.every(isCategoryDocument);
 }
 
-function isCategoryDocument(value: unknown): value is CompetitionCategory {
+export function isCategoryDocument(value: unknown): value is CompetitionCategory {
   return isRecord(value)
     && (value.version === 1 || value.version === 2)
     && typeof value.id === "string"
@@ -161,6 +163,59 @@ function isCategoryDocument(value: unknown): value is CompetitionCategory {
 
 export function saveCategories(categories: CompetitionCategory[]) {
   return categoryRepository.save(categories);
+}
+
+type CompetitionExportDocument = {
+  format: typeof COMPETITION_EXPORT_FORMAT;
+  version: typeof COMPETITION_EXPORT_VERSION;
+  exportedAt: string;
+  competition: CompetitionCategory;
+};
+
+export function serializeCompetition(category: CompetitionCategory) {
+  const document: CompetitionExportDocument = {
+    format: COMPETITION_EXPORT_FORMAT,
+    version: COMPETITION_EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    competition: category,
+  };
+  return JSON.stringify(document, null, 2);
+}
+
+function importedCompetition(value: unknown): CompetitionCategory {
+  const candidate = isRecord(value) && value.format === COMPETITION_EXPORT_FORMAT
+    ? value.version === COMPETITION_EXPORT_VERSION ? value.competition : undefined
+    : value;
+  if (!isCategoryDocument(candidate)) throw new Error("schema");
+  const now = Date.now();
+  const teamIds = new Set<string>();
+  const teams = candidate.teams.map((team, index) => {
+    const baseId = team.id || `team-imported-${index + 1}`;
+    let id = baseId;
+    while (teamIds.has(id)) id = `${baseId}-${teamIds.size + 1}`;
+    teamIds.add(id);
+    return { ...team, id, thirdColor: team.thirdColor ?? "#ffffff", order: index };
+  });
+  const driverIds = new Set<string>();
+  const drivers = candidate.drivers.map((driver, index) => {
+    const baseId = typeof driver.id === "string" && driver.id ? driver.id : `driver-imported-${index + 1}`;
+    let id = baseId;
+    while (driverIds.has(id)) id = `${baseId}-${driverIds.size + 1}`;
+    driverIds.add(id);
+    return { ...driver, id, teamId: teamIds.has(driver.teamId) ? driver.teamId : teams[0]?.id ?? "" };
+  });
+  return {
+    ...candidate,
+    id: `custom-category-${now}`,
+    official: false,
+    version: 2,
+    vehicleSpec: normalizeVehicleSpec(candidate.vehicleSpec),
+    strategyRules: normalizeStrategyRules(candidate.strategyRules),
+    sprites: { ...candidate.sprites, thumbnail: candidate.sprites.thumbnail || candidate.sprites.main },
+    teams,
+    drivers,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export function categoryDrivers(category: CompetitionCategory) {
@@ -261,6 +316,7 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState("");
   const [pendingImport, setPendingImport] = useState<CompetitionCategory | null>(null);
+  const competitionImportId = useId();
   const errors = useMemo(() => validateCategory(draft), [draft]);
 
   useEffect(() => {
@@ -363,8 +419,17 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
     draftRepository.reset();
     setMessage(UI_COPY.editor.competition.saved);
   };
-  const exportCategory = () => { const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${draft.id}.json`; anchor.click(); URL.revokeObjectURL(url); };
-  const importCategory = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const exportCompetition = () => {
+    const blob = new Blob([serializeCompetition(draft)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${draft.name.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || draft.id}.competition.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setMessage(UI_COPY.editor.competition.exportedCompetition);
+  };
+  const importCompetition = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -372,27 +437,7 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
     const reader = new FileReader();
     reader.onload = async () => {
       try {
-        const parsed: unknown = JSON.parse(String(reader.result));
-        if (!isCategoryDocument(parsed)) throw new Error("schema");
-        const imported = parsed;
-        const next = {
-          ...imported,
-          id: `custom-category-${Date.now()}`,
-          official: false,
-          version: 2 as const,
-          vehicleSpec: normalizeVehicleSpec(imported.vehicleSpec),
-          teams: imported.teams.map((team, index) => ({ ...team, id: team.id || `team-imported-${index}`, thirdColor: team.thirdColor ?? "#ffffff" })),
-          updatedAt: new Date().toISOString(),
-        };
-        const teamIds = new Set(next.teams.map((team) => team.id));
-        const importedDriverIds = new Set<string>();
-        next.drivers = imported.drivers.map((driver, index) => {
-          const requestedId = typeof driver.id === "string" && driver.id ? driver.id : `driver-imported-${index + 1}`;
-          const id = importedDriverIds.has(requestedId) ? `${requestedId}-${index + 1}` : requestedId;
-          importedDriverIds.add(id);
-          return { ...driver, id, teamId: teamIds.has(driver.teamId) ? driver.teamId : next.teams[0]?.id ?? "" };
-        });
-        setPendingImport(next);
+        setPendingImport(importedCompetition(JSON.parse(String(reader.result))));
       } catch { setMessage(UI_COPY.editor.competition.invalidJson); }
     };
     reader.readAsText(file);
@@ -441,7 +486,7 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
   if (!storageReady) return <LoadingScreen title={UI_COPY.editor.competition.loading} detail={UI_COPY.editor.competition.restoring} />;
 
   return <main className="competition-editor-shell">
-    <header className="competition-editor-header"><Brand className="brand" /><div><small>COMPETITION CREATION TOOL</small><strong>COMPETITION EDITOR</strong></div><div className="competition-editor-actions"><button onClick={leaveEditor}>← BACK</button><button onClick={duplicate}>DUPLICATE</button><button onClick={remove}>REMOVE</button><button className="primary" onClick={save} disabled={Boolean(errors.length || draft.official)}>SAVE</button></div></header>
+    <header className="competition-editor-header"><Brand className="brand" /><div><small>COMPETITION CREATION TOOL</small><strong>COMPETITION EDITOR</strong></div><div className="competition-editor-actions"><button onClick={leaveEditor}>← BACK</button><button onClick={duplicate}>DUPLICATE</button><button onClick={remove}>REMOVE</button><button onClick={exportCompetition}>{UI_COPY.editor.competition.exportCompetition}</button><label className="import-button" htmlFor={competitionImportId}>{UI_COPY.editor.competition.importCompetition}<input id={competitionImportId} aria-label={UI_COPY.editor.competition.importCompetition} type="file" accept="application/json,.competition.json" onChange={importCompetition} /></label><button className="primary" onClick={save} disabled={Boolean(errors.length || draft.official)}>SAVE</button></div></header>
     <div className="competition-editor-layout">
       <aside className="competition-list"><span className="editor-label">CATEGORIES</span>{categories.map((category) => <button key={category.id} className={category.id === selectedId ? "active" : ""} onClick={() => { if (dirty && !window.confirm(UI_COPY.editor.discardChanges)) return; setSelectedId(category.id); }}><strong>{category.name}</strong><small>{category.official ? UI_COPY.setup.official : UI_COPY.setup.custom} · {UI_COPY.setup.categoryDrivers(category.drivers.length)}</small></button>)}<button className="new-category" onClick={() => { const next = newCategory(categories.length); setCategories((current) => [...current, next]); setSelectedId(next.id); }}>+ NEW CATEGORY</button></aside>
       <section className="competition-editor-main"><div className="competition-tabs"><button className={tab === "category" ? "active" : ""} onClick={() => setTab("category")}>CATEGORY</button><button className={tab === "teams" ? "active" : ""} onClick={() => setTab("teams")}>TEAMS</button><button className={tab === "drivers" ? "active" : ""} onClick={() => setTab("drivers")}>DRIVERS</button><button className={tab === "sprites" ? "active" : ""} onClick={() => setTab("sprites")}>SPRITES</button></div>
@@ -480,7 +525,7 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
         </div>}
         {tab === "teams" && <div className="team-grid"><div className="team-grid-head"><span>TEAM</span><span>CODE</span><span>BLUE</span><span>GREEN</span><span>WHITE</span><span>ORDER</span></div>{draft.teams.map((team, index) => <article key={team.id}><input aria-label={UI_COPY.editor.competition.teamName(team.name)} value={team.name} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, name: event.target.value } : item) })} /><input aria-label={UI_COPY.editor.competition.teamCode(team.name)} value={team.code} maxLength={4} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, code: event.target.value.toUpperCase() } : item) })} /><input aria-label={UI_COPY.editor.competition.blueColor(team.name)} type="color" value={team.color} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, color: event.target.value } : item) })} /><input aria-label={UI_COPY.editor.competition.greenColor(team.name)} type="color" value={team.accent} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, accent: event.target.value } : item) })} /><input aria-label={UI_COPY.editor.competition.thirdColor(team.name)} type="color" value={team.thirdColor} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, thirdColor: event.target.value } : item) })} /><span className="team-row-actions"><button aria-label={`${UI_COPY.editor.competition.moveUp} ${team.name}`} disabled={index === 0} onClick={() => moveTeam(team.id, -1)}>↑</button><button aria-label={`${UI_COPY.editor.competition.moveDown} ${team.name}`} disabled={index === draft.teams.length - 1} onClick={() => moveTeam(team.id, 1)}>↓</button><button aria-label={UI_COPY.editor.competition.removeTeamLabel(team.name)} onClick={() => removeTeam(team)}>×</button></span></article>)}<button className="add-row" onClick={() => updateDraft({ ...draft, teams: [...draft.teams, { id: `team-${Date.now()}`, name: "New Team", code: "NEW", color: draft.primaryColor, accent: draft.secondaryColor, thirdColor: "#ffffff", order: draft.teams.length }] })}>+ ADD TEAM</button></div>}
         {tab === "drivers" && <DriverEditor category={draft} selectedId={selectedDriverId} onSelect={setSelectedDriverId} onChange={updateDraft} onDuplicate={duplicateDriver} onMove={moveDriver} />}
-        {tab === "sprites" && <div className="sprite-editor"><div className="sprite-controls"><span className="editor-label">VISUAL LIBRARY</span><p>Use the category and team colors to generate vector sprites compatible with the circuit and Live Timing.</p><span className="sprite-subheading">LIVERY PRESETS</span><div className="sprite-presets">{SPRITE_PRESETS.map((preset) => <button key={preset.id} className={draft.sprites.lateral === preset.lateral ? "active" : ""} onClick={() => updateDraft({ ...draft, sprites: { ...draft.sprites, main: preset.main, lateral: preset.lateral, thumbnail: preset.main } })}><i style={{ background: preset.color }} />{preset.label}</button>)}</div><label><span>BODY SCALE · {Math.round((draft.spriteScale ?? 1) * 100)}%</span><input type="range" min=".8" max="1.2" step=".01" value={draft.spriteScale ?? 1} onChange={(event) => updateDraft({ ...draft, spriteScale: Number(event.target.value) })} /></label><label><span>LIVE TIMING SCALE · {Math.round((draft.lateralScale ?? 1) * 100)}%</span><input type="range" min=".7" max="1.2" step=".01" value={draft.lateralScale ?? 1} onChange={(event) => updateDraft({ ...draft, lateralScale: Number(event.target.value) })} /></label><button onClick={exportCategory}>EXPORT JSON</button><label className="import-button">IMPORT JSON<input type="file" accept="application/json" onChange={importCategory} /></label></div><div className="sprite-previews"><div><span className="sprite-preview-label">TOP VIEW</span><CarPreview category={draft} driver={driver} view="main" /></div><div><span className="sprite-preview-label">LIVE TIMING</span><CarPreview category={draft} driver={driver} view="lateral" /></div></div></div>}
+        {tab === "sprites" && <div className="sprite-editor"><div className="sprite-controls"><span className="editor-label">VISUAL LIBRARY</span><p>Use the category and team colors to generate vector sprites compatible with the circuit and Live Timing.</p><span className="sprite-subheading">LIVERY PRESETS</span><div className="sprite-presets">{SPRITE_PRESETS.map((preset) => <button key={preset.id} className={draft.sprites.lateral === preset.lateral ? "active" : ""} onClick={() => updateDraft({ ...draft, sprites: { ...draft.sprites, main: preset.main, lateral: preset.lateral, thumbnail: preset.main } })}><i style={{ background: preset.color }} />{preset.label}</button>)}</div><label><span>BODY SCALE · {Math.round((draft.spriteScale ?? 1) * 100)}%</span><input type="range" min=".8" max="1.2" step=".01" value={draft.spriteScale ?? 1} onChange={(event) => updateDraft({ ...draft, spriteScale: Number(event.target.value) })} /></label><label><span>LIVE TIMING SCALE · {Math.round((draft.lateralScale ?? 1) * 100)}%</span><input type="range" min=".7" max="1.2" step=".01" value={draft.lateralScale ?? 1} onChange={(event) => updateDraft({ ...draft, lateralScale: Number(event.target.value) })} /></label></div><div className="sprite-previews"><div><span className="sprite-preview-label">TOP VIEW</span><CarPreview category={draft} driver={driver} view="main" /></div><div><span className="sprite-preview-label">LIVE TIMING</span><CarPreview category={draft} driver={driver} view="lateral" /></div></div></div>}
         {tab === "sprites" && <div className="sprite-transfer-panel"><div><strong>TOP SPRITE · CIRCUIT</strong><small>{draft.sprites.main.startsWith("data:") ? "Custom" : "Generated from the category"}</small><button onClick={() => exportSprite("main")}>EXPORT SPRITE</button><label className="import-button">IMPORT SPRITE<input type="file" accept="image/svg+xml,image/png,image/webp" onChange={(event) => importSprite("main", event)} /></label></div><div><strong>LATERAL SPRITE · LIVE TIMING</strong><small>{draft.sprites.lateral.startsWith("data:") ? "Custom" : "Generated from the category"}</small><button onClick={() => exportSprite("lateral")}>EXPORT SPRITE</button><label className="import-button">IMPORT SPRITE<input type="file" accept="image/svg+xml,image/png,image/webp" onChange={(event) => importSprite("lateral", event)} /></label></div></div>}
       </section>
       <aside className="competition-preview"><span className="editor-label">PREVIEW</span><CarPreview category={draft} driver={driver} /><strong>{driver?.name ?? draft.name}</strong><small>{driver ? `${driver.code} · #${driver.number}` : draft.manufacturer}</small><div className="live-row-preview"><span>01</span><CarPreview category={draft} driver={driver} /><strong>{driver?.code ?? "SAI"}<small>{driver?.name ?? "Driver"}</small></strong><b>LEADER</b></div><div className={`category-validation ${errors.length ? "invalid" : "valid"}`}><strong>{errors.length ? "FIX BEFORE SAVING" : "CATEGORY VALID"}</strong>{errors.map((error) => <span key={error}>{error}</span>)}</div>{dirty && <small className="editor-dirty">● UNSAVED CHANGES</small>}{message && <p className="editor-message">{message}</p>}</aside>

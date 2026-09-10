@@ -56,6 +56,8 @@ test("browser renders and navigates both creation tools", async ({ page }) => {
   await page.getByRole("button", { name: /Competition Editor/ }).click();
   await expect(page.locator(".competition-editor-shell")).toBeVisible();
   await expect(page.locator(".competition-editor-actions .primary")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "EXPORT COMPETITION" })).toBeVisible();
+  await expect(page.getByLabel("IMPORT COMPETITION")).toBeAttached();
   await page.locator(".competition-tabs").getByRole("button", { name: /SPRITES/ }).click();
   await expect(page.locator(".sprite-presets button")).toHaveCount(4);
 
