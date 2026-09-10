@@ -86,17 +86,17 @@ test("strategy rules request service for mandatory stops and worn tires", () => 
   assert.equal(strategy.shouldRequestPitStop(state, rules, 0, 10), true);
 });
 
-test("editor uses the SVG screen transform for drop and drag coordinates", async () => {
-  const source = await readFile(new URL("../app/track-editor.tsx", import.meta.url), "utf8");
-  assert.match(source, /getScreenCTM\(\)/);
-  assert.match(source, /addChunk\(id, worldPoint\(event\)\)/);
-  assert.doesNotMatch(source, /worldPoint\(event as unknown as React\.PointerEvent<SVGSVGElement>\)/);
+test("Track Editor maps canvas pointer coordinates through the live viewport", async () => {
+  const source = await readFile(new URL("../app/track-creator/editor/CanvasViewport.tsx", import.meta.url), "utf8");
+  assert.match(source, /function screenToWorld\(event: React\.PointerEvent<HTMLCanvasElement>\)/);
+  assert.match(source, /event\.currentTarget\.getBoundingClientRect\(\)/);
+  assert.match(source, /props\.viewport\.zoom/);
+  assert.match(source, /const point = screenToWorld\(event\)/);
 });
 
-test("editor renders connector overlays in the chunk's local coordinate system", async () => {
-  const source = await readFile(new URL("../app/track-editor.tsx", import.meta.url), "utf8");
-  assert.match(source, /const point = connector;/);
-  assert.match(source, /<text x=\{0\} y=\{-18\}/);
-  assert.match(source, /pointerEvents="all"/);
+test("Track Editor captures pointer interactions and releases them safely", async () => {
+  const source = await readFile(new URL("../app/track-creator/editor/CanvasViewport.tsx", import.meta.url), "utf8");
   assert.match(source, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(source, /hasPointerCapture\(event\.pointerId\)/);
+  assert.match(source, /releasePointerCapture\(event\.pointerId\)/);
 });

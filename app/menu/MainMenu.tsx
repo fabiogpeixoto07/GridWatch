@@ -52,7 +52,7 @@ export function MainMenu({ savedSession, circuitCount, driverCount, onSingleRace
             <b>{UI_COPY.navigation.configure} <i>→</i></b>
           </button>
         </div>
-        {circuitCount === 0 && <p className="empty-circuit-notice" role="status">Create and save a valid circuit in Settings → Circuit Editor before starting a race.</p>}
+        {circuitCount === 0 && <p className="empty-circuit-notice" role="status">Create and save a valid circuit in Settings → Track Editor before starting a race.</p>}
         {circuitCount === 1 && <p className="empty-circuit-notice" role="status">Create one more valid circuit to unlock Championship mode.</p>}
       </section>
       <footer className="menu-footer">

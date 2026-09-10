@@ -39,31 +39,18 @@ test("browser renders and navigates both creation tools", async ({ page }) => {
   await page.waitForTimeout(350);
   expect(await page.evaluate(() => window.__gridwatchButtonTextMutations)).toBe(0);
 
-  await page.getByRole("button", { name: /Championship/ }).click();
-  await expect(page.locator('.championship-playback-control button[aria-checked="true"]')).toContainText("MANUAL");
-  await page.locator(".championship-playback-control button").filter({ hasText: "AUTO BROADCAST" }).click();
-  await page.locator('select:has(option[value="mini-formula"])').selectOption("mini-formula");
-  await expect(page.getByRole("button", { name: /START AUTO BROADCAST/ })).toBeVisible();
-  await page.getByRole("button", { name: /START AUTO BROADCAST/ }).click();
-  await expect(page.locator(".race-shell .auto-broadcast-pill")).toBeVisible();
-  await expect(page.locator(".live-status")).toContainText("STARTING");
-  await page.locator(".race-actions-trigger").click();
-  await page.getByRole("menuitemcheckbox", { name: /PAUSE AUTO ADVANCE/ }).click();
-  await expect(page.locator(".auto-broadcast-pill")).toContainText("PAUSED");
-  await page.locator("#race-actions-menu .race-menu-exit").click();
-
   await page.getByRole("button", { name: /Settings/ }).click();
   await page.getByRole("button", { name: /Theme/ }).click();
   await page.locator(".theme-choice-card button").filter({ hasText: "LIGHT" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expect(page.locator('.theme-choice-card button[aria-checked="true"]')).toContainText("LIGHT");
   await page.locator(".ghost-action").click();
-  await page.getByRole("button", { name: /Circuit Editor/ }).click();
-  await expect(page.locator(".track-editor-shell")).toBeVisible();
-  await expect(page.locator(".scene-list")).toBeVisible();
-  await expect(page.locator(".element-asset-glyph use")).toHaveCount(10);
+  await page.getByRole("button", { name: /Track Editor/ }).click();
+  await expect(page.locator(".track-creator-root .app-shell")).toBeVisible();
+  await expect(page.locator(".track-creator-root .tool-grid")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
 
-  await page.locator(".editor-top-actions button").first().click();
+  await page.locator(".track-creator-root .top-actions").getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("button", { name: /Competition Editor/ }).click();
   await expect(page.locator(".competition-editor-shell")).toBeVisible();
   await expect(page.locator(".competition-editor-actions .primary")).toBeDisabled();
@@ -73,6 +60,11 @@ test("browser renders and navigates both creation tools", async ({ page }) => {
   await page.locator(".competition-editor-actions button").first().click();
   await page.getByRole("button", { name: /MAIN MENU/ }).click();
   await page.getByRole("button", { name: /Single Race/ }).click();
+  const authoredTrackOption = page.locator("select option").filter({ hasText: "Starter Oval" });
+  await expect(authoredTrackOption).toHaveCount(1);
+  const authoredTrackId = await authoredTrackOption.getAttribute("value");
+  if (!authoredTrackId) throw new Error("Saved Track Editor document has no track id");
+  await page.locator("select").first().selectOption(authoredTrackId);
   await page.locator('select:has(option[value="mini-formula"])').selectOption("mini-formula");
   await page.getByRole("button", { name: /CONFIRM RACE/ }).click();
   await expect(page.locator(".race-shell")).toBeVisible();

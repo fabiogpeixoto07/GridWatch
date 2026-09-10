@@ -8,8 +8,9 @@ const read = (path) => readFile(new URL(path, root), "utf8");
 test("browser-only libraries restore after hydration", async () => {
   const page = await read("app/game/GameShell.tsx");
   const editor = await read("app/competition-editor.tsx");
-  assert.match(page, /useState<EditableCircuit\[\]>\(\[\]\)/);
-  assert.match(page, /setCustomTracks\(loadCustomCircuits\(\)\)/);
+  assert.match(page, /useState<CreatorCircuit\[\]>\(\[\]\)/);
+  assert.match(page, /loadCreatorCircuits\(\)/);
+  assert.match(page, /migrateLegacyCircuits\(legacyTracks\)/);
   assert.match(editor, /const stored = loadCategories\(\)/);
   assert.match(editor, /setCategories\(\[official, \.\.\.stored/);
   assert.match(editor, /draftRepository\.load\(\)/);
@@ -17,19 +18,24 @@ test("browser-only libraries restore after hydration", async () => {
 
 test("custom documents use guarded, versioned storage", async () => {
   const storage = await read("app/storage.ts");
-  const tracks = await read("app/track-editor.tsx");
+  const tracks = await read("app/track-creator/persistence.ts");
+  const schema = await read("app/track-creator/domain/track/schema.ts");
   const categories = await read("app/competition-editor.tsx");
   assert.match(storage, /schemaVersion/);
   assert.match(storage, /try \{/);
-  assert.match(tracks, /createStorageRepository\(STORAGE_KEY, \[\], isCircuitArray\)/);
+  assert.match(tracks, /gridwatch-track-creator/);
+  assert.match(tracks, /indexedDB\.open/);
+  assert.match(schema, /TrackDocumentSchema/);
   assert.match(categories, /createStorageRepository\(STORAGE_KEY, \[\], isCategoryArray\)/);
 });
 
 test("editors expose destructive-action and asset safeguards", async () => {
-  const track = await read("app/track-editor.tsx");
+  const track = await read("app/track-creator/App.tsx");
   const category = await read("app/competition-editor.tsx");
   assert.match(category, /UI_COPY\.editor\.competition\.removeTeam/);
-  assert.match(track, /dragOriginRef/);
+  assert.match(track, /cancelTransient/);
+  assert.match(track, /parseDocument/);
+  assert.match(track, /validateDocument/);
   assert.match(category, /file\.size > 2_000_000/);
   assert.match(category, /isCategoryDocument/);
   assert.match(category, /useId\(\)/);
@@ -41,7 +47,7 @@ test("editors expose destructive-action and asset safeguards", async () => {
   assert.match(category, /duplicateDriver/);
   assert.match(category, /TOP VIEW/);
   assert.match(category, /LIVE TIMING/);
-  assert.match(track, /UI_COPY\.editor\.discardChanges/);
+  assert.match(track, /Could not save the current track/);
 });
 
 test("documented developer commands are cross-platform Node entrypoints", async () => {
@@ -124,20 +130,20 @@ test("competition documents migrate to stable driver identities without destruct
 test("reliability foundation exposes repositories, cached assets, and editor safeguards", async () => {
   const storage = await read("app/storage.ts");
   const sprites = await read("app/lib/sprite-service.ts");
-  const track = await read("app/track-editor.tsx");
+  const track = await read("app/track-creator/App.tsx");
+  const migration = await read("app/track-creator/legacy-migration.ts");
   const category = await read("app/competition-editor.tsx");
   assert.match(storage, /StorageRepository/);
   assert.match(storage, /createStorageRepository/);
   assert.match(storage, /subscribe:/);
   assert.match(sprites, /loadImage/);
   assert.match(sprites, /AbortSignal/);
-  assert.match(track, /SET START \/ FINISH/);
-  assert.match(track, /snapToGrid/);
-  assert.match(track, /trackMetrics/);
-  assert.match(track, /duplicateSelectedPoint/);
-  assert.match(track, /editor-shortcuts/);
-  assert.match(track, /return `C /);
-  assert.match(track, /commands\.join/);
+  assert.match(track, /connectMatchingConnectors/);
+  assert.match(track, /GHOST_STEP_SECONDS/);
+  assert.match(track, /spectatorFrame/);
+  assert.match(track, /terrainFollowingTrack/);
+  assert.match(migration, /legacyMigrationCompleted/);
+  assert.match(migration, /migrateLegacyCircuit/);
   assert.match(category, /isSafeSvg/);
   assert.match(category, /2–4 character code/);
 });

@@ -15,7 +15,7 @@ export function SettingsHub({ onOpen, onBack }: SettingsHubProps) {
     ["race", "01", UI_COPY.settings.raceControl, UI_COPY.settings.raceSettings, UI_COPY.settings.raceDescription, UI_COPY.navigation.configure],
     ["audio", "02", UI_COPY.settings.soundSystem, UI_COPY.settings.audio, UI_COPY.settings.audioDescription, UI_COPY.navigation.configure],
     ["appearance", "03", UI_COPY.settings.appearance, UI_COPY.settings.theme, UI_COPY.settings.themeDescription, UI_COPY.navigation.configure],
-    ["track-editor", "04", UI_COPY.settings.trackCreationTool, UI_COPY.settings.circuitEditor, UI_COPY.settings.circuitEditorDescription, UI_COPY.navigation.openEditor],
+    ["track-editor", "04", UI_COPY.settings.trackCreationTool, UI_COPY.settings.trackEditor, UI_COPY.settings.trackEditorDescription, UI_COPY.navigation.openEditor],
     ["competition-editor", "05", UI_COPY.settings.competitionCreationTool, UI_COPY.settings.competitionEditor, UI_COPY.settings.competitionEditorDescription, UI_COPY.navigation.openEditor],
   ] as const;
   return (

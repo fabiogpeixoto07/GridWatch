@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TRACKS, type Circuit } from "../tracks";
-import { loadCustomCircuits, loadSavedCircuits, TrackEditor, type EditableCircuit } from "../track-editor";
+import { loadLegacyCustomCircuits, type LegacyCustomCircuit } from "../track-creator/legacy-store";
+import { isCreatorCircuit, loadCreatorCircuits, creatorCircuitFromDocument, type CreatorCircuit } from "../track-creator/race-library";
+import { migrateLegacyCircuits } from "../track-creator/legacy-migration";
+import { getThemePalette } from "../track-creator/domain/track/themes";
 import { categoryDrivers, CompetitionEditor, createDefaultCategory, loadCategories, type CompetitionCategory } from "../competition-editor";
 import { analyzeTrack, stepDriving, type DrivingGeometry, type DrivingPhase, type OvertakeState } from "../racing";
 import { buildRaceResultSnapshot, calculateFinishGap, type RaceResultSnapshot } from "../race-results";
@@ -17,12 +20,8 @@ import {
   type ChampionshipPlaybackMode,
 } from "../championship/autoplay-director";
 import { migrateLegacyTrack } from "../domain/track-document";
-import { documentToLegacyCircuit } from "../domain/circuit-document";
-import { clearLegacyCircuitStorage } from "../domain/circuit-repository";
-import { TRACK_CHUNK_TEMPLATE_MAP } from "../track-chunks";
-import { compileCircuitDocument } from "../simulation/circuit-compiler";
-import { advanceRouteController, assignPitBox, beginPitService, completePitService, createRouteController, enterEscapeRoute, registerRouteCar, rejoinMainRoute, requestPitEntry, reverseAtEscapeTerminal, type RouteControllerState } from "../simulation/route-controller";
-import { compileTrack } from "../simulation/track-compiler";
+import { compileTrack, type CompiledTrack } from "../simulation/track-compiler";
+import { compileAuthoringTrack } from "../simulation/authoring-track-compiler";
 import { WorldRaceEngine, type WorldRaceCarSnapshot } from "../simulation/world-race-engine";
 import {
   championshipSessionRepository,
@@ -39,11 +38,13 @@ import { LiveTiming } from "../race/LiveTiming";
 import { RaceActionsMenu } from "../race/RaceActionsMenu";
 import { assetRegistry } from "../assets/asset-registry";
 import { BroadcastPanel } from "../race/BroadcastPanel";
-import { createCarStrategyState, DEFAULT_FORMULA_STRATEGY, shouldRequestPitStop, type CarStrategyState, type StrategyRulesV1 } from "../domain/race-strategy";
 type GameMode = "single" | "championship";
 type GameTheme = "dark" | "light";
 const WINNER_PRESENTATION_DURATION_MS = 2_000;
 const THEME_STORAGE_KEY = "gridwatch.theme";
+const TrackCreator = lazy(() =>
+  import("../track-creator/App").then((module) => ({ default: module.TrackCreator })),
+);
 const isGameTheme = (value: unknown): value is GameTheme => value === "dark" || value === "light";
 type MenuScreen =
   | "mode"
@@ -131,7 +132,6 @@ type CarState = {
   worldX: number | null;
   worldY: number | null;
   worldHeading: number | null;
-  strategy: CarStrategyState;
 };
 
 type TrackSample = {
@@ -148,6 +148,8 @@ type Geometry = {
   trackWidth: number;
   driving: DrivingGeometry;
   worldBounds: { minX: number; maxX: number; minY: number; maxY: number };
+  camera?: { centerX: number; centerY: number; rotation: number; scale: number; screenX: number; screenY: number };
+  compiled?: CompiledTrack;
 };
 
 type AudioSystem = {
@@ -184,7 +186,6 @@ const CAR_SCALE_FACTOR = 0.85 * 0.7;
 const RACE_ATTRIBUTE_VARIATION = 5;
 const CURB_OFFSET_FACTOR = 0.42;
 const CURB_LINE_WIDTH = 3.4;
-const EMPTY_TRACK: Circuit = { id: "empty", name: "No circuit created", country: "—", style: "balanced", points: [] };
 
 function seeded(seed: number) {
   const value = Math.sin(seed * 9283.31 + 17.71) * 43758.5453;
@@ -324,6 +325,49 @@ function buildGeometry(
   };
 }
 
+function buildCompiledGeometry(
+  width: number,
+  height: number,
+  track: CompiledTrack,
+  frame?: { center: { x: number; y: number }; size: { x: number; y: number }; rotation: number },
+): Geometry {
+  const allPoints = [...track.leftBoundary, ...track.rightBoundary];
+  const minX = Math.min(...allPoints.map((point) => point.x));
+  const maxX = Math.max(...allPoints.map((point) => point.x));
+  const minY = Math.min(...allPoints.map((point) => point.y));
+  const maxY = Math.max(...allPoints.map((point) => point.y));
+  const centerX = frame?.center.x ?? (minX + maxX) / 2;
+  const centerY = frame?.center.y ?? (minY + maxY) / 2;
+  const rotation = frame?.rotation ?? 0;
+  const spanX = frame?.size.x ?? Math.max(1, maxX - minX + 40);
+  const spanY = frame?.size.y ?? Math.max(1, maxY - minY + 40);
+  const scale = Math.min(width * 0.93 / spanX, height * 0.89 / spanY);
+  const screenX = width / 2;
+  const screenY = height / 2;
+  const cosine = Math.cos(rotation);
+  const sine = Math.sin(rotation);
+  const project = (position: { x: number; y: number }) => ({
+    x: screenX + ((position.x - centerX) * cosine + (position.y - centerY) * sine) * scale,
+    y: screenY + (-(position.x - centerX) * sine + (position.y - centerY) * cosine) * scale,
+  });
+  const samples = track.samples.map((sample, index) => {
+    const point = project(sample.position);
+    const next = project(track.samples[(index + 1) % track.samples.length].position);
+    return { x: point.x, y: point.y, angle: Math.atan2(next.y - point.y, next.x - point.x), curve: Math.min(1, Math.abs(sample.curvature) * 18) };
+  });
+  const averageWidth = track.samples.reduce((total, sample) => total + sample.widthLeft + sample.widthRight, 0) / track.samples.length;
+  return {
+    samples,
+    width,
+    height,
+    trackWidth: Math.max(10, averageWidth * scale),
+    driving: analyzeTrack(samples, Math.max(10, averageWidth * scale)),
+    worldBounds: { minX, maxX, minY, maxY },
+    camera: { centerX, centerY, rotation, scale, screenX, screenY },
+    compiled: track,
+  };
+}
+
 function stableSeedKey(id: string | number) {
   if (typeof id === "number") return id;
   let hash = 2_166_136_261;
@@ -332,6 +376,15 @@ function stableSeedKey(id: string | number) {
 }
 
 function worldToCanvas(position: { x: number; y: number }, geometry: Geometry) {
+  if (geometry.camera) {
+    const { centerX, centerY, rotation, scale, screenX, screenY } = geometry.camera;
+    const cosine = Math.cos(rotation);
+    const sine = Math.sin(rotation);
+    return {
+      x: screenX + ((position.x - centerX) * cosine + (position.y - centerY) * sine) * scale,
+      y: screenY + (-(position.x - centerX) * sine + (position.y - centerY) * cosine) * scale,
+    };
+  }
   const { minX, maxX, minY, maxY } = geometry.worldBounds;
   return {
     x: (0.035 + (position.x - minX) / Math.max(0.0001, maxX - minX) * 0.93) * geometry.width,
@@ -339,7 +392,7 @@ function worldToCanvas(position: { x: number; y: number }, geometry: Geometry) {
   };
 }
 
-function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS, strategyRules: StrategyRulesV1 = DEFAULT_FORMULA_STRATEGY): CarState[] {
+function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS): CarState[] {
   const selected = drivers.slice(0, gridSize)
     .map((driver) => ({ driver, seedKey: stableSeedKey(driver.id), sort: seeded(seed * 19 + stableSeedKey(driver.id) * 137) }))
     .sort((a, b) => a.sort - b.sort);
@@ -406,7 +459,6 @@ function initialCars(gridSize: number, seed: number, totalLaps: number, drivers:
       worldX: null,
       worldY: null,
       worldHeading: null,
-      strategy: createCarStrategyState(strategyRules, seedKey + seed),
     };
   });
 }
@@ -726,7 +778,111 @@ function drawCar(
   }
 }
 
+function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, track: CreatorCircuit) {
+  const compiled = geometry.compiled;
+  if (!compiled) return;
+  const palette = getThemePalette(track.trackDocument.theme);
+  const surfaceColors: Record<CompiledTrack["samples"][number]["surface"], string> = {
+    asphalt: palette.road,
+    concrete: palette.runoff.concrete,
+    curb: palette.kerbA,
+    grass: palette.runoff.grass,
+    gravel: palette.runoff.gravel,
+  };
+  ctx.clearRect(0, 0, geometry.width, geometry.height);
+  ctx.fillStyle = palette.terrain;
+  ctx.fillRect(0, 0, geometry.width, geometry.height);
+
+  const project = (point: { x: number; y: number }) => worldToCanvas(point, geometry);
+  // The authored surface ribbon is shared with the physical collision path, so width changes are visible immediately.
+  for (const ribbon of compiled.surfaceRibbon) {
+    const leftStart = project(ribbon.leftStart);
+    const rightStart = project(ribbon.rightStart);
+    const leftEnd = project(ribbon.leftEnd);
+    const rightEnd = project(ribbon.rightEnd);
+    ctx.beginPath();
+    ctx.moveTo(leftStart.x, leftStart.y);
+    ctx.lineTo(leftEnd.x, leftEnd.y);
+    ctx.lineTo(rightEnd.x, rightEnd.y);
+    ctx.lineTo(rightStart.x, rightStart.y);
+    ctx.closePath();
+    ctx.fillStyle = surfaceColors[ribbon.surface];
+    ctx.fill();
+  }
+
+  const strokeBoundary = (points: { x: number; y: number }[], color: string, width: number, dash?: number[]) => {
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      const projected = project(point);
+      if (index === 0) ctx.moveTo(projected.x, projected.y);
+      else ctx.lineTo(projected.x, projected.y);
+    });
+    ctx.closePath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dash ?? []);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+  strokeBoundary(compiled.leftBoundary, palette.roadEdge, 2);
+  strokeBoundary(compiled.rightBoundary, palette.roadEdge, 2);
+  if (track.trackDocument.environment.kerb !== "none") {
+    strokeBoundary(compiled.leftBoundary, palette.kerbB, 4, [9, 9]);
+    strokeBoundary(compiled.rightBoundary, palette.kerbB, 4, [9, 9]);
+  }
+
+  for (const prop of track.trackDocument.props) {
+    const point = project(prop.position);
+    const size = Math.max(3, Math.min(24, prop.scale * 7));
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.rotate(prop.rotation - (geometry.camera?.rotation ?? 0));
+    if (prop.type === "tree") {
+      ctx.fillStyle = palette.prop;
+      ctx.beginPath();
+      ctx.arc(0, 0, size, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (prop.type === "grandstand") {
+      ctx.fillStyle = "rgba(238, 243, 241, .78)";
+      ctx.fillRect(-size * 1.7, -size * .65, size * 3.4, size * 1.3);
+    } else if (prop.type === "barrier") {
+      ctx.strokeStyle = palette.barrier;
+      ctx.lineWidth = Math.max(2, size / 3);
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.4, 0);
+      ctx.lineTo(size * 1.4, 0);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = palette.prop;
+      ctx.fillRect(-size / 2, -size / 2, size, size);
+    }
+    ctx.restore();
+  }
+
+  const start = compiled.sensors.find((sensor) => sensor.kind === "start-finish");
+  if (start) {
+    const point = project(start.position);
+    const tangent = project({ x: start.position.x + start.normal.y, y: start.position.y - start.normal.x });
+    const angle = Math.atan2(tangent.y - point.y, tangent.x - point.x);
+    const width = Math.max(12, (compiled.samples.reduce((total, sample) => total + sample.widthLeft + sample.widthRight, 0) / compiled.samples.length) * (geometry.camera?.scale ?? 1));
+    const cells = 10;
+    for (let index = 0; index < cells; index += 1) {
+      const offset = (index / cells - 0.5) * width;
+      ctx.strokeStyle = index % 2 === 0 ? "#f3f4ef" : "#101516";
+      ctx.lineWidth = width / cells + .8;
+      ctx.beginPath();
+      ctx.moveTo(point.x + Math.cos(angle) * offset - Math.sin(angle) * 2.5, point.y + Math.sin(angle) * offset + Math.cos(angle) * 2.5);
+      ctx.lineTo(point.x + Math.cos(angle) * offset + Math.sin(angle) * 2.5, point.y + Math.sin(angle) * offset - Math.cos(angle) * 2.5);
+      ctx.stroke();
+    }
+  }
+}
+
 function drawTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, track: Circuit) {
+  if (isCreatorCircuit(track)) {
+    drawAuthoredTrack(ctx, geometry, track);
+    return;
+  }
   const { samples, width, height, trackWidth } = geometry;
   ctx.clearRect(0, 0, width, height);
 
@@ -998,7 +1154,7 @@ export function GameShell() {
   const simulationAccumulatorRef = useRef(0);
   const geometryRef = useRef<Geometry | null>(null);
   const carsRef = useRef<CarState[]>(initialCars(12, 1, 6));
-  const currentTrackRef = useRef<Circuit>(EMPTY_TRACK);
+  const currentTrackRef = useRef<Circuit>(TRACKS[0]);
   const modeRef = useRef<GameMode | null>(null);
   const raceTimeRef = useRef(0);
   const countdownRef = useRef(3);
@@ -1021,7 +1177,6 @@ export function GameShell() {
   const worldRaceEngineRef = useRef<WorldRaceEngine | null>(null);
   const worldRaceEnginePromiseRef = useRef<Promise<WorldRaceEngine | null> | null>(null);
   const worldRaceEngineGenerationRef = useRef(0);
-  const routeControllerRef = useRef<RouteControllerState | null>(null);
 
   const [screen, setScreen] = useState<MenuScreen>("mode");
   const [gameMode, setGameMode] = useState<GameMode | null>(null);
@@ -1054,13 +1209,14 @@ export function GameShell() {
   const [showDrivingDebug, setShowDrivingDebug] = useState(false);
   const [raceActionsOpen, setRaceActionsOpen] = useState(false);
   const [worldEngineState, setWorldEngineState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [customTracks, setCustomTracks] = useState<EditableCircuit[]>([]);
+  const [customTracks, setCustomTracks] = useState<LegacyCustomCircuit[]>([]);
+  const [creatorTracks, setCreatorTracks] = useState<CreatorCircuit[]>([]);
   const [customCategories, setCustomCategories] = useState<CompetitionCategory[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   const [officialCategory] = useState(createDefaultCategory);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
-  const catalog = useMemo(() => [...TRACKS, ...customTracks], [customTracks]);
-  const currentTrack = catalog[currentTrackIndex] ?? catalog[0] ?? EMPTY_TRACK;
+  const catalog = useMemo(() => [...TRACKS, ...customTracks, ...creatorTracks], [creatorTracks, customTracks]);
+  const currentTrack = catalog[currentTrackIndex] ?? catalog[0] ?? TRACKS[0];
   const categories = useMemo(() => [officialCategory, ...customCategories], [customCategories, officialCategory]);
   const activeCategory = categories.find((category) => category.id === selectedCategoryId) ?? officialCategory;
   const activeDrivers = useMemo(() => categoryDrivers(activeCategory) as Driver[], [activeCategory]);
@@ -1071,14 +1227,27 @@ export function GameShell() {
   useEffect(() => {
     const controller = new AbortController();
     // Browser storage is restored after hydration to avoid server/client markup divergence.
-    clearLegacyCircuitStorage();
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCustomTracks(loadCustomCircuits());
+    const legacyTracks = loadLegacyCustomCircuits();
+    // Keep the legacy catalog visible until its corresponding modular documents are confirmed readable.
+    // This makes clearing IndexedDB recoverable from the still-present legacy localStorage data.
+    setCustomTracks(legacyTracks);
+    void (async () => {
+      const migration = await migrateLegacyCircuits(legacyTracks);
+      const tracks = await loadCreatorCircuits();
+      if (controller.signal.aborted) return;
+      setCreatorTracks(tracks);
+      const availableCreatorIds = new Set(tracks.map((track) => track.id));
+      const hiddenLegacyIds = migration.complete
+        ? availableCreatorIds
+        : migration.migratedIds;
+      setCustomTracks(legacyTracks.filter((track) => !hiddenLegacyIds.has(track.id)));
+    })().catch(() => {
+      // IndexedDB is optional. The embedded editor exposes its own recovery error when it is unavailable.
+    });
     setCustomCategories(loadCategories());
     setSavedChampionshipSession(championshipSessionRepository.load());
-    void Promise.all([assetRegistry.preloadCritical(controller.signal), loadSavedCircuits()]).then(([, circuits]) => {
-      if (!controller.signal.aborted) setCustomTracks(circuits);
-    }).finally(() => { if (!controller.signal.aborted) setStorageReady(true); });
+    void assetRegistry.preloadCritical(controller.signal).finally(() => { if (!controller.signal.aborted) setStorageReady(true); });
     return () => controller.abort();
   }, []);
 
@@ -1248,18 +1417,9 @@ export function GameShell() {
     worldRaceEngineRef.current?.free();
     worldRaceEngineRef.current = null;
     setWorldEngineState("loading");
-    const authoredTemplates = currentTrackRef.current.document ? new Map([...TRACK_CHUNK_TEMPLATE_MAP.entries(), ...(currentTrackRef.current.document.embeddedTemplates ?? []).map((template) => [template.id, template] as const)]) : TRACK_CHUNK_TEMPLATE_MAP;
-    const authoredCircuit = currentTrackRef.current.document ? compileCircuitDocument(currentTrackRef.current.document, authoredTemplates) : null;
-    if (authoredCircuit) {
-      routeControllerRef.current = createRouteController(authoredCircuit);
-      for (const car of raceCars) routeControllerRef.current = registerRouteCar(routeControllerRef.current, String(car.id), car.distance);
-    } else {
-      routeControllerRef.current = null;
-    }
-    const trackDocument = authoredCircuit
-      ? migrateLegacyTrack({ ...documentToLegacyCircuit(currentTrackRef.current.document as NonNullable<Circuit["document"]>), points: authoredCircuit.main.samples.map((sample) => [sample.x / currentTrackRef.current.document!.world.widthMeters, sample.y / currentTrackRef.current.document!.world.heightMeters] as const) })
-      : migrateLegacyTrack(currentTrackRef.current);
-    const compiledTrack = compileTrack(trackDocument);
+    const compiledTrack = isCreatorCircuit(currentTrackRef.current)
+      ? compileAuthoringTrack(currentTrackRef.current.trackDocument)
+      : compileTrack(migrateLegacyTrack(currentTrackRef.current));
     const drivers = raceCars.map((car) => {
         return {
           id: String(car.id),
@@ -1293,7 +1453,7 @@ export function GameShell() {
   const resetRace = useCallback((newSeed?: number) => {
     const seed = newSeed ?? sessionSeedRef.current;
     sessionSeedRef.current = seed;
-    carsRef.current = initialCars(selectedGridSize, seed, totalLaps, activeDrivers, activeCategory.strategyRules);
+    carsRef.current = initialCars(selectedGridSize, seed, totalLaps, activeDrivers);
     raceTimeRef.current = 0;
     simulationAccumulatorRef.current = 0;
     countdownRef.current = 3;
@@ -1318,7 +1478,7 @@ export function GameShell() {
     setCountdown(3);
     setRaceStatus("ready");
     if (modeRef.current) initializeWorldRaceEngine(carsRef.current);
-  }, [activeCategory.strategyRules, activeDrivers, initializeWorldRaceEngine, selectedGridSize, totalLaps, setRaceStatus]);
+  }, [activeDrivers, initializeWorldRaceEngine, selectedGridSize, totalLaps, setRaceStatus]);
 
   const rollRaceSeed = useCallback(() => {
     raceSeedSequenceRef.current += 1;
@@ -1326,7 +1486,7 @@ export function GameShell() {
   }, []);
 
   const loadTrack = useCallback((trackIndex: number) => {
-    const nextTrack = catalog[trackIndex] ?? catalog[0] ?? EMPTY_TRACK;
+    const nextTrack = catalog[trackIndex] ?? catalog[0] ?? TRACKS[0];
     currentTrackRef.current = nextTrack;
     geometryRef.current = null;
     setCurrentTrackIndex(trackIndex);
@@ -1350,7 +1510,7 @@ export function GameShell() {
   }, [initAudio, setRaceStatus]);
 
   const beginSingleRace = useCallback(() => {
-    if (!selectedCategoryId || !catalog.length) return;
+    if (!selectedCategoryId) return;
     const seed = rollRaceSeed();
     const trackIndex =
       selectedTrackChoice === "random"
@@ -1370,7 +1530,7 @@ export function GameShell() {
   }, [autoplayDirector, catalog, loadTrack, resetRace, rollRaceSeed, selectedCategoryId, selectedTrackChoice]);
 
   const beginChampionship = useCallback(() => {
-    if (!selectedCategoryId || catalog.length < 2) return;
+    if (!selectedCategoryId) return;
     const seed = rollRaceSeed();
     const raceCount = clamp(Math.round(championshipLength), 2, catalog.length);
     const schedule = shuffledTrackIndices(seed, catalog).slice(0, raceCount);
@@ -1479,7 +1639,6 @@ export function GameShell() {
     worldRaceEngineRef.current?.free();
     worldRaceEngineRef.current = null;
     worldRaceEnginePromiseRef.current = null;
-    routeControllerRef.current = null;
     setWorldEngineState("idle");
     setRaceStatus("ready");
     modeRef.current = null;
@@ -1614,7 +1773,6 @@ export function GameShell() {
     const delta = Math.min(deltaReal, 0.05);
     raceTimeRef.current += delta;
     const currentRaceTime = raceTimeRef.current;
-    if (routeControllerRef.current) routeControllerRef.current = advanceRouteController(routeControllerRef.current, delta, currentRaceTime);
     for (const car of carsRef.current) {
       // The high-frequency simulation state intentionally stays in a mutable ref.
       // eslint-disable-next-line react-hooks/immutability
@@ -1626,21 +1784,13 @@ export function GameShell() {
 
       if (car.mechanical === "failing") {
         const failureAge = currentRaceTime - car.failureStartedAt;
-        car.strategy.damage = Math.min(1, car.strategy.damage + delta * .03);
-        if (routeControllerRef.current && failureAge < delta * 2) routeControllerRef.current = enterEscapeRoute(routeControllerRef.current, car.id);
         car.targetLane = car.failureSide * 1.12;
         car.lane += (car.targetLane - car.lane) * Math.min(1, delta * 1.35);
         car.speed = Math.max(0, car.speed - delta * (0.0062 + failureAge * 0.0014));
         car.distance += car.speed * delta;
         if (car.speed <= 0.00012) {
           car.speed = 0;
-          if (routeControllerRef.current?.cars[car.id]?.escapeState === "entering") routeControllerRef.current = reverseAtEscapeTerminal(routeControllerRef.current, car.id);
-          if (routeControllerRef.current?.cars[car.id]?.escapeState === "reversing" && failureAge <= 4) {
-            car.targetLane = 0;
-          } else {
-            if (routeControllerRef.current?.cars[car.id]?.escapeState === "reversing") routeControllerRef.current = rejoinMainRoute(routeControllerRef.current, car.id, car.distance);
-            car.mechanical = "retired";
-          }
+          car.mechanical = "retired";
         }
         continue;
       }
@@ -1650,38 +1800,6 @@ export function GameShell() {
         car.lane += (car.targetLane - car.lane) * Math.min(1, delta * 0.8);
         car.speed = Math.max(0, car.speed - delta * 0.018);
         continue;
-      }
-
-      const strategyRules = activeCategory.strategyRules;
-      const compound = strategyRules.compounds.find((item) => item.id === car.strategy.compoundId) ?? strategyRules.compounds[0];
-      car.strategy.fuelLiters = Math.max(0, car.strategy.fuelLiters - strategyRules.fuelBurnLitersPerLap * delta * Math.max(.35, car.speed * 2));
-      car.strategy.tireWear = Math.min(1, car.strategy.tireWear + (compound?.wearPerLap ?? .08) * delta * Math.max(.35, car.speed * 2));
-      if (car.strategy.pitService === "on-track" && (shouldRequestPitStop(car.strategy, strategyRules, Math.floor(Math.max(0, car.distance)), totalLaps) || car.strategy.tireWear > .72 || car.strategy.fuelLiters < strategyRules.fuelBurnLitersPerLap * 1.15 || car.strategy.damage > .45)) car.strategy.pitService = "requested";
-      let routeState = routeControllerRef.current;
-      if (routeState && car.strategy.pitService === "requested") {
-        routeState = requestPitEntry(routeState, car.id);
-        routeState = assignPitBox(routeState, car.id);
-        routeControllerRef.current = routeState;
-      }
-      const routeCar = routeState?.cars[car.id];
-      if (routeCar && routeState) {
-        if (routeCar.pitState === "queued") routeState = beginPitService(routeState, car.id, currentRaceTime);
-        routeControllerRef.current = routeState;
-        const activeRouteCar = routeState.cars[car.id];
-        if (activeRouteCar?.pitState === "servicing" && activeRouteCar.serviceStartedAt !== null && currentRaceTime - activeRouteCar.serviceStartedAt >= strategyRules.tireChangeSeconds + car.strategy.damage * strategyRules.repairSecondsPerDamage) {
-          routeState = completePitService(routeState, car.id);
-          routeControllerRef.current = routeState;
-          car.strategy.tireWear = 0;
-          if (strategyRules.refuelingAllowed) car.strategy.fuelLiters = strategyRules.fuelCapacityLiters;
-          car.strategy.damage = 0;
-          car.strategy.pitStops += 1;
-        }
-        const finalRouteCar = routeState.cars[car.id];
-        if (finalRouteCar) {
-          car.strategy.pitService = finalRouteCar.pitState;
-          car.strategy.assignedBoxId = finalRouteCar.assignedBoxId;
-          car.strategy.serviceStartedAt = finalRouteCar.serviceStartedAt;
-        }
       }
 
       if (car.failureAt !== null && car.distance >= car.failureAt) {
@@ -1888,7 +2006,7 @@ export function GameShell() {
       }
       setRaceStatus("finished");
     }
-  }, [activeCategory.name, activeCategory.strategyRules, activeCategory.vehicleSpec.maxSteeringDegrees, activeDrivers, championshipRound, playEffect, setRaceStatus, totalLaps]);
+  }, [activeCategory.name, activeCategory.vehicleSpec.maxSteeringDegrees, activeDrivers, championshipRound, playEffect, setRaceStatus]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1994,7 +2112,9 @@ export function GameShell() {
       canvas.height = Math.floor(rect.height * ratio);
       const ctx = canvas.getContext("2d");
       ctx?.setTransform(ratio, 0, 0, ratio, 0, 0);
-      geometryRef.current = buildGeometry(rect.width, rect.height, currentTrack.points, currentTrack.startIndex ?? 0);
+      geometryRef.current = isCreatorCircuit(currentTrack)
+        ? buildCompiledGeometry(rect.width, rect.height, compileAuthoringTrack(currentTrack.trackDocument), currentTrack.trackDocument.spectatorFrame)
+        : buildGeometry(rect.width, rect.height, currentTrack.points, currentTrack.startIndex ?? 0);
       draw();
     };
     const observer = new ResizeObserver(resize);
@@ -2067,8 +2187,8 @@ export function GameShell() {
     });
   const selectedTrackPreview =
     selectedTrackChoice === "random"
-      ? catalog[randomTrackIndex(2026, undefined, catalog)] ?? EMPTY_TRACK
-      : catalog.find((track) => track.id === selectedTrackChoice) ?? catalog[0] ?? EMPTY_TRACK;
+      ? catalog[randomTrackIndex(2026, undefined, catalog)]
+      : catalog.find((track) => track.id === selectedTrackChoice) ?? catalog[0] ?? TRACKS[0];
   const isFinalChampionshipRound =
     gameMode === "championship" &&
     championshipSchedule.length > 0 &&
@@ -2106,7 +2226,10 @@ export function GameShell() {
 
   if (screen === "track-editor") {
     if (!storageReady) return <LoadingScreen title={UI_COPY.editor.loadingLibrary} detail={UI_COPY.editor.restoringCircuits} />;
-    return <TrackEditor tracks={catalog} onSave={(saved) => setCustomTracks((current) => [...current.filter((track) => track.id !== saved.id), saved])} onBack={() => setScreen("settings")} />;
+    return <div className="track-creator-root"><Suspense fallback={<LoadingScreen title="Opening Track Editor" detail="Restoring your local workspace." />}><TrackCreator onSaved={(document) => {
+      const saved = creatorCircuitFromDocument(document);
+      if (saved) setCreatorTracks((current) => [...current.filter((track) => track.id !== saved.id), saved]);
+    }} onBack={() => setScreen("settings")} /></Suspense></div>;
   }
 
   if (screen === "competition-editor") {
@@ -2145,7 +2268,7 @@ export function GameShell() {
           const gapLaps = leader ? leader.distance - car.distance : 0;
           const resultEntry = raceResult?.entries.find((entry) => entry.id === car.id);
           const finalGap = resultEntry?.gapSeconds ?? calculateFinishGap(car.finishedAt, leader?.finishedAt ?? null);
-          return { id: car.id, mechanical: car.mechanical, points: championshipPoints[car.id] ?? 0, gap: index === 0 ? "LEADER" : finalGap !== null ? `+${finalGap.toFixed(3)}` : `+${(gapLaps * 22.8).toFixed(2)}`, compound: activeCategory.strategyRules.compounds.find((compound) => compound.id === car.strategy.compoundId)?.label, tireWear: car.strategy.tireWear, fuelLiters: car.strategy.fuelLiters, pitService: car.strategy.pitService };
+          return { id: car.id, mechanical: car.mechanical, points: championshipPoints[car.id] ?? 0, gap: index === 0 ? "LEADER" : finalGap !== null ? `+${finalGap.toFixed(3)}` : `+${(gapLaps * 22.8).toFixed(2)}` };
         })} />
       </section>
 

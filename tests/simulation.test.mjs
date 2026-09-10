@@ -15,10 +15,17 @@ const sources = [
   "app/domain/vehicle-spec.ts",
   "app/domain/track-document.ts",
   "app/simulation/track-compiler.ts",
+  "app/simulation/authoring-track-compiler.ts",
   "app/simulation/speed-profile.ts",
   "app/simulation/engine/rapier-vehicle-world.ts",
   "app/simulation/world-race-engine.ts",
   "app/simulation/regression-fixtures.ts",
+  "app/track-creator/domain/track/document.ts",
+  "app/track-creator/domain/track/geometry.ts",
+  "app/track-creator/domain/track/modules.ts",
+  "app/track-creator/domain/track/advancedModules.ts",
+  "app/track-creator/domain/track/authoring.ts",
+  "app/track-creator/legacy-migration.ts",
 ];
 const compile = spawnSync(process.execPath, [fileURLToPath(compiler), ...sources, "--target", "es2022", "--module", "nodenext", "--moduleResolution", "nodenext", "--outDir", temporary, "--skipLibCheck"], { cwd: fileURLToPath(root), encoding: "utf8" });
 if (compile.status !== 0) throw new Error(compile.stderr || compile.stdout);
@@ -27,6 +34,9 @@ const autoplay = await importBuilt("championship/autoplay-director.js");
 const vehicles = await importBuilt("domain/vehicle-spec.js");
 const tracks = await importBuilt("domain/track-document.js");
 const compilerModule = await importBuilt("simulation/track-compiler.js");
+const authoringCompiler = await importBuilt("simulation/authoring-track-compiler.js");
+const authoringDocuments = await importBuilt("track-creator/domain/track/document.js");
+const legacyMigration = await importBuilt("track-creator/legacy-migration.js");
 const speedProfiles = await importBuilt("simulation/speed-profile.js");
 const physics = await importBuilt("simulation/engine/rapier-vehicle-world.js");
 const worldRacing = await importBuilt("simulation/world-race-engine.js");
@@ -65,6 +75,40 @@ test("legacy tracks migrate to physical units and compile to one arc-length geom
   assert.equal(compiled.gridSlots.length, 22);
   assert.equal(compiled.sensors.filter((sensor) => sensor.kind === "sector").length, 2);
   assert.equal(compiled.colliders.length, 2);
+  assert.deepEqual(compilerModule.validateCompiledTrack(compiled), []);
+});
+
+test("authoring documents compile their closed primary route, grid, surfaces, and sensors for the physical race engine", () => {
+  const document = authoringDocuments.createSampleDocument();
+  document.modules[0].properties = { surface: "concrete", grip: 0.92 };
+  const compiled = authoringCompiler.compileAuthoringTrack(document);
+  assert.ok(compiled.lengthMeters > 300);
+  assert.equal(compiled.gridSlots.length, document.grid.slotCount);
+  assert.ok(compiled.sensors.some((sensor) => sensor.kind === "start-finish"));
+  assert.ok(compiled.samples.some((sample) => sample.surface === "concrete" && sample.grip === 0.92));
+  assert.deepEqual(compilerModule.validateCompiledTrack(compiled), []);
+});
+
+test("legacy custom point loops migrate into an editable modular track that compiles for racing", () => {
+  const points = Array.from({ length: 12 }, (_, index) => {
+    const angle = index / 12 * Math.PI * 2;
+    return [0.5 + Math.cos(angle) * 0.34, 0.5 + Math.sin(angle) * 0.27];
+  });
+  const migrated = legacyMigration.migrateLegacyCircuit({
+    id: "custom-legacy-loop",
+    name: "Legacy Loop",
+    country: "Test",
+    points,
+    width: 1,
+    startIndex: 3,
+    scenery: [{ id: "tree", type: "tree", x: 0.22, y: 0.24, rotation: 0, scale: 1 }],
+  });
+  assert.equal(migrated.modules.length, points.length);
+  assert.equal(migrated.connections.length, points.length);
+  assert.equal(migrated.props.length, 1);
+  const compiled = authoringCompiler.compileAuthoringTrack(migrated);
+  assert.ok(compiled.lengthMeters > 300);
+  assert.ok(compiled.gridSlots.length >= 12);
   assert.deepEqual(compilerModule.validateCompiledTrack(compiled), []);
 });
 
