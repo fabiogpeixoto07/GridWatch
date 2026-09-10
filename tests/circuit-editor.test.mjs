@@ -100,3 +100,10 @@ test("Track Editor captures pointer interactions and releases them safely", asyn
   assert.match(source, /hasPointerCapture\(event\.pointerId\)/);
   assert.match(source, /releasePointerCapture\(event\.pointerId\)/);
 });
+
+test("Track Editor offers route-module selection independently of canvas hit testing", async () => {
+  const source = await readFile(new URL("../app/track-creator/editor/LibraryPanels.tsx", import.meta.url), "utf8");
+  assert.match(source, /aria-label="Road module"/);
+  assert.match(source, /selectModule\(event\.target\.value \|\| undefined\)/);
+  assert.match(source, /const selectableModules = routeModules\.length \? routeModules : document\.modules/);
+});

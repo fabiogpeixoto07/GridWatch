@@ -26,6 +26,7 @@ const sources = [
   "app/track-creator/domain/track/advancedModules.ts",
   "app/track-creator/domain/track/authoring.ts",
   "app/track-creator/legacy-migration.ts",
+  "app/track-creator/legacy-circuit-document-migration.ts",
 ];
 const compile = spawnSync(process.execPath, [fileURLToPath(compiler), ...sources, "--target", "es2022", "--module", "nodenext", "--moduleResolution", "nodenext", "--outDir", temporary, "--skipLibCheck"], { cwd: fileURLToPath(root), encoding: "utf8" });
 if (compile.status !== 0) throw new Error(compile.stderr || compile.stdout);
@@ -37,6 +38,7 @@ const compilerModule = await importBuilt("simulation/track-compiler.js");
 const authoringCompiler = await importBuilt("simulation/authoring-track-compiler.js");
 const authoringDocuments = await importBuilt("track-creator/domain/track/document.js");
 const legacyMigration = await importBuilt("track-creator/legacy-migration.js");
+const legacyCircuitDocumentMigration = await importBuilt("track-creator/legacy-circuit-document-migration.js");
 const speedProfiles = await importBuilt("simulation/speed-profile.js");
 const physics = await importBuilt("simulation/engine/rapier-vehicle-world.js");
 const worldRacing = await importBuilt("simulation/world-race-engine.js");
@@ -112,10 +114,42 @@ test("legacy custom point loops migrate into an editable modular track that comp
   assert.deepEqual(compilerModule.validateCompiledTrack(compiled), []);
 });
 
+test("Northstar's retired chunk document migrates into independently selectable Track Editor roads", () => {
+  const northstar = {
+    version: 3,
+    id: "northstar",
+    name: "Northstar Circuit",
+    country: "Northstar",
+    style: "flowing",
+    world: { widthMeters: 1000, heightMeters: 620 },
+    chunks: [{ id: "northstar-straight", templateId: "straight-medium", x: 0, y: 0, rotation: 0, curbMode: "both" }],
+    embeddedTemplates: [{ id: "straight-medium", widthMeters: 16 }],
+    connections: [],
+    routes: [{ routeId: "main", points: Array.from({ length: 12 }, (_, index) => {
+      const angle = index / 12 * Math.PI * 2;
+      return { x: 300 + Math.cos(angle) * 180, y: 240 + Math.sin(angle) * 120 };
+    }), confirmedRevision: 1 }],
+    startFinish: { chunkId: "northstar-straight", progress: 0 },
+    startingGrid: { anchorChunkId: "northstar-straight", anchorProgress: 0, slots: 18, rowSpacingMeters: 8, lateralSpacingMeters: 2, stagger: true },
+    pitBoxes: null,
+    escapes: [],
+    revision: 1,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const migrated = legacyCircuitDocumentMigration.migrateLegacyCircuitDocument(northstar);
+  assert.equal(migrated.id, "northstar");
+  assert.equal(migrated.modules.length, 12);
+  assert.ok(migrated.modules.every((module) => module.definitionId === "freeform-curve"));
+  assert.ok(migrated.modules.every((module) => module.parameters.width === 16));
+  assert.equal(migrated.grid.slotCount, 18);
+  assert.deepEqual(compilerModule.validateCompiledTrack(authoringCompiler.compileAuthoringTrack(migrated)), []);
+});
+
 test("vehicle specifications normalize imported values into physical safety limits", () => {
-  const spec = vehicles.normalizeVehicleSpec({ massKg: 10, tireGrip: 9, reliability: -1 });
+  const spec = vehicles.normalizeVehicleSpec({ massKg: 10, tireGrip: 9, downforceCoefficient: 101, reliability: -1 });
   assert.equal(spec.massKg, 300);
   assert.equal(spec.tireGrip, 2.5);
+  assert.equal(spec.downforceCoefficient, 100);
   assert.equal(spec.reliability, 0.5);
   assert.deepEqual(vehicles.validateVehicleSpec(vehicles.DEFAULT_FORMULA_VEHICLE_SPEC), []);
 });

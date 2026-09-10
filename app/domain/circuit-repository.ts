@@ -1,4 +1,4 @@
-import { isCircuitDocumentV3, type CircuitDocumentV3, type TrackChunkTemplateV1 } from "./circuit-document";
+import { isCircuitDocumentV3, type CircuitDocumentV3, type TrackChunkTemplateV1 } from "./circuit-document.js";
 
 const DATABASE_NAME = "gridwatch-circuits";
 const DATABASE_VERSION = 1;

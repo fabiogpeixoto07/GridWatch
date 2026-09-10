@@ -457,7 +457,7 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
               <label><span>{UI_COPY.editor.competition.engineForce}</span><input type="number" min="2000" max="40000" step="100" value={draft.vehicleSpec.maxEngineForceNewtons} onChange={(event) => updateVehicleSpec("maxEngineForceNewtons", Number(event.target.value))} /></label>
               <label><span>{UI_COPY.editor.competition.brakeForce}</span><input type="number" min="5000" max="80000" step="100" value={draft.vehicleSpec.maxBrakeForceNewtons} onChange={(event) => updateVehicleSpec("maxBrakeForceNewtons", Number(event.target.value))} /></label>
               <label><span>{UI_COPY.editor.competition.tireGrip}</span><input type="number" min=".45" max="2.5" step=".01" value={draft.vehicleSpec.tireGrip} onChange={(event) => updateVehicleSpec("tireGrip", Number(event.target.value))} /></label>
-              <label><span>{UI_COPY.editor.competition.downforce}</span><input type="number" min="0" max="4" step=".05" value={draft.vehicleSpec.downforceCoefficient} onChange={(event) => updateVehicleSpec("downforceCoefficient", Number(event.target.value))} /></label>
+              <label><span>{UI_COPY.editor.competition.downforce}</span><input type="number" min="0" max="100" step="1" value={draft.vehicleSpec.downforceCoefficient} onChange={(event) => updateVehicleSpec("downforceCoefficient", Number(event.target.value))} /></label>
               <label><span>{UI_COPY.editor.competition.steeringLock}</span><input type="number" min="8" max="45" step="1" value={draft.vehicleSpec.maxSteeringDegrees} onChange={(event) => updateVehicleSpec("maxSteeringDegrees", Number(event.target.value))} /></label>
             </div>
           </section>

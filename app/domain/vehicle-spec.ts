@@ -56,7 +56,7 @@ export function normalizeVehicleSpec(value: Partial<VehicleSpec> | null | undefi
     tireGrip: bounded(value?.tireGrip, fallback.tireGrip, 0.45, 2.5),
     corneringStiffness: bounded(value?.corneringStiffness, fallback.corneringStiffness, 1, 20),
     dragCoefficient: bounded(value?.dragCoefficient, fallback.dragCoefficient, 0.05, 3),
-    downforceCoefficient: bounded(value?.downforceCoefficient, fallback.downforceCoefficient, 0, 4),
+    downforceCoefficient: bounded(value?.downforceCoefficient, fallback.downforceCoefficient, 0, 100),
     rollingResistance: bounded(value?.rollingResistance, fallback.rollingResistance, 0, 0.08),
     reliability: bounded(value?.reliability, fallback.reliability, 0.5, 1),
   };

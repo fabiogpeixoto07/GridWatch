@@ -5,6 +5,7 @@ import { TRACKS, type Circuit } from "../tracks";
 import { loadLegacyCustomCircuits, type LegacyCustomCircuit } from "../track-creator/legacy-store";
 import { isCreatorCircuit, loadCreatorCircuits, creatorCircuitFromDocument, type CreatorCircuit } from "../track-creator/race-library";
 import { migrateLegacyCircuits } from "../track-creator/legacy-migration";
+import { migrateNorthstarCircuitDocument } from "../track-creator/legacy-circuit-document-migration";
 import { getThemePalette } from "../track-creator/domain/track/themes";
 import { categoryDrivers, CompetitionEditor, createDefaultCategory, loadCategories, type CompetitionCategory } from "../competition-editor";
 import { analyzeTrack, stepDriving, type DrivingGeometry, type DrivingPhase, type OvertakeState } from "../racing";
@@ -1234,6 +1235,7 @@ export function GameShell() {
     setCustomTracks(legacyTracks);
     void (async () => {
       const migration = await migrateLegacyCircuits(legacyTracks);
+      await migrateNorthstarCircuitDocument();
       const tracks = await loadCreatorCircuits();
       if (controller.signal.aborted) return;
       setCreatorTracks(tracks);

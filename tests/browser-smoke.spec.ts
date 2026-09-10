@@ -49,6 +49,8 @@ test("browser renders and navigates both creation tools", async ({ page }) => {
   await expect(page.locator(".track-creator-root .app-shell")).toBeVisible();
   await expect(page.locator(".track-creator-root .tool-grid")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+  await page.getByLabel("Road module").selectOption({ index: 1 });
+  await expect(page.getByLabel("Width")).toBeVisible();
 
   await page.locator(".track-creator-root .top-actions").getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("button", { name: /Competition Editor/ }).click();

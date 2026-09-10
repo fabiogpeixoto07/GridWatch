@@ -274,12 +274,14 @@ export function RoutePanel({
   active,
   selectedModuleId,
   select,
+  selectModule,
   change,
 }: {
   document: TrackDocument;
   active: string;
   selectedModuleId?: string;
   select: (id: string) => void;
+  selectModule: (id?: string) => void;
   change: (d: TrackDocument, label: string) => void;
 }) {
   const path = document.paths.find((p) => p.id === active),
@@ -298,6 +300,11 @@ export function RoutePanel({
   const steps =
     path?.traversals ??
     (path ? inferRouteTraversals(document, path) : undefined);
+  const routeModuleIds = steps?.map((step) => step.moduleId) ?? path?.sourceModuleIds ?? [];
+  const routeModules = routeModuleIds
+    .map((moduleId) => document.modules.find((item) => item.id === moduleId))
+    .filter((module): module is TrackModule => Boolean(module));
+  const selectableModules = routeModules.length ? routeModules : document.modules;
   function update(list: RouteTraversal[]) {
     const next = structuredClone(document),
       target = next.paths.find((p) => p.id === active)!;
@@ -321,6 +328,21 @@ export function RoutePanel({
                 {p.id} · {p.metadata?.role ?? p.kind}
               </option>
             ))}
+        </select>
+      </label>
+      <label>
+        Road module
+        <select
+          aria-label="Road module"
+          value={selectedModuleId ?? ""}
+          onChange={(event) => selectModule(event.target.value || undefined)}
+        >
+          <option value="">Select a road module</option>
+          {selectableModules.map((item, index) => (
+            <option key={item.id} value={item.id}>
+              {String(index + 1).padStart(2, "0")} · {getModuleDefinition(item.definitionId)?.label ?? item.definitionId}
+            </option>
+          ))}
         </select>
       </label>
       <details>

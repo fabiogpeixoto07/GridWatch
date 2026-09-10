@@ -1350,6 +1350,19 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               setActiveRouteId(value);
               if (tool === "pit") setTool("place");
             }}
+            selectModule={(idValue) => {
+              setSelectedModuleId(idValue);
+              setSelectedPropId(undefined);
+              setSelectedPathPointId(undefined);
+              if (idValue)
+                setTool(
+                  document.paths.find((path) =>
+                    path.sourceModuleIds.includes(idValue),
+                  )?.kind === "pit"
+                    ? "pit"
+                    : "select",
+                );
+            }}
             change={commit}
           />
           <ModulePalette
