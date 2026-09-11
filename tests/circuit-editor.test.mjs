@@ -101,6 +101,15 @@ test("Track Editor captures pointer interactions and releases them safely", asyn
   assert.match(source, /releasePointerCapture\(event\.pointerId\)/);
 });
 
+test("Track Editor selects and drags placed props and markers from the canvas", async () => {
+  const source = await readFile(new URL("../app/track-creator/editor/CanvasViewport.tsx", import.meta.url), "utf8");
+  assert.match(source, /function hitProp\(point: Vec2\)/);
+  assert.match(source, /function hitMarker\(point: Vec2\)/);
+  assert.match(source, /props\.onSelectMarker\(markerId\)/);
+  assert.match(source, /kind: "marker", markerId/);
+  assert.match(source, /props\.onMoveMarker\(drag\.markerId, point\)/);
+});
+
 test("Track Editor offers route-module selection independently of canvas hit testing", async () => {
   const source = await readFile(new URL("../app/track-creator/editor/LibraryPanels.tsx", import.meta.url), "utf8");
   assert.match(source, /aria-label="Road module"/);

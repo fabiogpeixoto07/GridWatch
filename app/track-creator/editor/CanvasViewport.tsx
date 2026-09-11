@@ -36,6 +36,7 @@ interface CanvasViewportProps {
   selectedModuleId?: string;
   selectedPathPointId?: string;
   selectedPropId?: string;
+  selectedMarkerId?: string;
   placingDefinitionId?: TrackDocument["modules"][number]["definitionId"];
   placementPreview?: Vec2;
   placementStatus?: "ready" | "snap" | "invalid";
@@ -51,6 +52,7 @@ interface CanvasViewportProps {
   onSelectModule: (moduleId?: string) => void;
   onSelectPathPoint: (pathId: string, pointId?: string) => void;
   onSelectProp: (propId?: string) => void;
+  onSelectMarker: (markerId?: string) => void;
   onPlaceModule: (point: Vec2) => void;
   onAddMarker: (point: Vec2) => void;
   onAddPathPoint: (point: Vec2, pathId: string) => void;
@@ -68,6 +70,7 @@ interface CanvasViewportProps {
   onTerrainStroke: (point: Vec2) => void;
   onMoveModule: (moduleId: string, point: Vec2) => void;
   onMoveProp: (propId: string, point: Vec2) => void;
+  onMoveMarker: (markerId: string, point: Vec2) => void;
   onCommitMove: () => void;
   onCancelMove: () => void;
 }
@@ -131,6 +134,7 @@ export function CanvasViewport(props: CanvasViewportProps) {
         handle?: "inHandle" | "outHandle";
       }
     | { kind: "prop"; propId: string }
+    | { kind: "marker"; markerId: string }
     | { kind: "terrain" }
     | undefined
   >(undefined);
@@ -713,7 +717,9 @@ export function CanvasViewport(props: CanvasViewportProps) {
         );
       }
       context.fillStyle =
-        marker.type === "start-finish"
+        marker.id === props.selectedMarkerId
+          ? "#fff1a8"
+          : marker.type === "start-finish"
           ? "#f7f7f2"
           : marker.type.includes("pit")
             ? "#ffbd61"
@@ -1002,6 +1008,17 @@ export function CanvasViewport(props: CanvasViewportProps) {
       )?.id;
   }
 
+  function hitMarker(point: Vec2): string | undefined {
+    return [...props.document.markers]
+      .reverse()
+      .find((marker) => {
+        const geometry = allPaths[marker.location.pathId];
+        if (!geometry) return false;
+        const position = geometry.path.sampleAtDistance(marker.location.distanceMeters).position;
+        return Math.hypot(position.x - point.x, position.y - point.y) <= 9 / props.viewport.zoom;
+      })?.id;
+  }
+
   function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
     const point = screenToWorld(event);
     if (props.spectatorPreview) return;
@@ -1025,7 +1042,14 @@ export function CanvasViewport(props: CanvasViewportProps) {
       props.onPlaceModule(point);
       return;
     }
+    const markerId = hitMarker(point);
     if (props.tool === "markers") {
+      if (markerId) {
+        props.onSelectMarker(markerId);
+        dragRef.current = { kind: "marker", markerId };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
       props.onAddMarker(point);
       return;
     }
@@ -1063,6 +1087,19 @@ export function CanvasViewport(props: CanvasViewportProps) {
         dragRef.current = { kind: "prop", propId };
         event.currentTarget.setPointerCapture(event.pointerId);
       } else props.onAddProp(point);
+      return;
+    }
+    if (markerId) {
+      props.onSelectMarker(markerId);
+      dragRef.current = { kind: "marker", markerId };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    const propId = hitProp(point);
+    if (propId) {
+      props.onSelectProp(propId);
+      dragRef.current = { kind: "prop", propId };
+      event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
     if (props.tool === "spectator") {
@@ -1117,6 +1154,7 @@ export function CanvasViewport(props: CanvasViewportProps) {
         props.onMovePathHandle?.(drag.pathId, drag.pointId, drag.handle, point);
       else props.onMovePathPoint(drag.pathId, drag.pointId, point);
     } else if (drag.kind === "prop") props.onMoveProp(drag.propId, point);
+    else if (drag.kind === "marker") props.onMoveMarker(drag.markerId, point);
     else if (drag.kind === "terrain") props.onTerrainStroke(point);
   }
 

@@ -729,6 +729,20 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
     if (prop) prop.position = { ...prop.position, x: point.x, y: point.y };
     updateDraft(next);
   }
+  function moveMarker(markerId: string, point: Vec2) {
+    startTransient();
+    const next = cloneDocument(documentRef.current);
+    const marker = next.markers.find((item) => item.id === markerId);
+    const geometry = marker ? buildAllPathGeometries(next)[marker.location.pathId] : undefined;
+    if (marker && geometry) {
+      const projection = geometry.path.nearestPoint(point);
+      marker.location.distanceMeters = projection.distanceMeters;
+      marker.location.anchor = projection.moduleId
+        ? { moduleId: projection.moduleId, localT: projection.localT ?? 0 }
+        : undefined;
+    }
+    updateDraft(next);
+  }
 
   function finishTransient() {
     if (!transientRef.current) return;
@@ -752,6 +766,8 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               ? "Move path point"
               : tool === "props"
                 ? "Move prop"
+                : selectedMarkerId
+                  ? "Move marker"
                 : "Move module",
       },
     ]);
@@ -2016,6 +2032,9 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
                   onClick={() => {
                     setSelectedMarkerId(marker.id);
                     setSelectedZoneId(undefined);
+                    setSelectedModuleId(undefined);
+                    setSelectedPathPointId(undefined);
+                    setSelectedPropId(undefined);
                   }}
                 >
                   {marker.configuration.label ?? marker.type}
@@ -2090,6 +2109,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
             selectedModuleId={selectedModuleId}
             selectedPathPointId={selectedPathPointId}
             selectedPropId={selectedPropId}
+            selectedMarkerId={selectedMarkerId}
             placingDefinitionId={placingDefinitionId}
             placementPreview={placementPreview}
             placementStatus={placementStatus}
@@ -2106,6 +2126,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               setSelectedModuleId(idValue);
               setSelectedPropId(undefined);
               setSelectedPathPointId(undefined);
+              setSelectedMarkerId(undefined);
               if (idValue)
                 setTool(
                   document.paths.find((path) =>
@@ -2124,11 +2145,19 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               setSelectedPathPointId(idValue);
               setSelectedModuleId(undefined);
               setSelectedPropId(undefined);
+              setSelectedMarkerId(undefined);
             }}
             onSelectProp={(idValue) => {
               setSelectedPropId(idValue);
               setSelectedModuleId(undefined);
               setSelectedPathPointId(undefined);
+              setSelectedMarkerId(undefined);
+            }}
+            onSelectMarker={(idValue) => {
+              setSelectedMarkerId(idValue);
+              setSelectedModuleId(undefined);
+              setSelectedPathPointId(undefined);
+              setSelectedPropId(undefined);
             }}
             onPlaceModule={addModule}
             onAddMarker={addMarkerAtPoint}
@@ -2157,6 +2186,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
             onTerrainStroke={sculptTerrain}
             onMoveModule={moveModule}
             onMoveProp={moveProp}
+            onMoveMarker={moveMarker}
             onPlacementPreview={setPlacementPreview}
             onCommitMove={finishTransient}
             onCancelMove={cancelTransient}
