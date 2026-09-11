@@ -60,7 +60,7 @@ The Track Editor is a modular, document-based replacement for the retired point-
 
 - Reusable straights, turns, chicanes, route connections, and primary/pit/alternate paths. The Freeform tool is a guided End → Start bridge: select two open connectors on the active route and it draws a tangent-aligned road using the selected Start piece's settings; its intentional joins are permitted while unrelated road collisions remain blocked.
 - Starting grids, surface and grip zones, terrain, curbs, barriers, props, themes, and spectator framing.
-- In-editor validation, geometry analysis, import/export, autosave, and a topbar browser-local track picker. Switching tracks asks whether to save or discard unsaved work.
+- In-editor validation, geometry analysis, import/export, autosave, and a topbar browser-local track picker. Switching tracks asks whether to save or discard unsaved work, and inactive saved tracks can be permanently deleted after confirmation.
 - Direct conversion of a valid primary route into the same compiled physical track contract used by the race engine.
 
 New tracks are stored as versioned `.track.json` documents in IndexedDB. Existing Circuit Editor saves are migrated once on load and remain recoverable from their legacy browser storage if a migration target is unavailable.

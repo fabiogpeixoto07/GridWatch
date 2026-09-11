@@ -58,6 +58,7 @@ import type {
 } from "./domain/track/types.js";
 import {
   downloadDocument,
+  deleteDocument,
   loadDocument,
   loadLastDocument,
   listDocuments,
@@ -155,6 +156,10 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
   const [trackList, setTrackList] = useState<Array<{ id: string; name: string }>>([]);
   const [trackPickerOpen, setTrackPickerOpen] = useState(false);
   const [pendingTrackId, setPendingTrackId] = useState<string>();
+  const [pendingDeleteTrack, setPendingDeleteTrack] = useState<{
+    id: string;
+    name: string;
+  }>();
   const [dirty, setDirty] = useState(false);
   const [placementParameters, setPlacementParameters] = useState<
     Record<string, number>
@@ -1056,6 +1061,17 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
       await openSavedTrack(idValue);
     } catch (error) { setNotice(String(error)); }
   }
+  async function confirmTrackDelete() {
+    if (!pendingDeleteTrack) return;
+    try {
+      await deleteDocument(pendingDeleteTrack.id);
+      setPendingDeleteTrack(undefined);
+      await refreshTrackList();
+      setNotice("Deleted saved track");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not delete saved track");
+    }
+  }
   async function openSavedTrack(id: string) {
     try {
       const saved = await loadDocument(id);
@@ -1240,13 +1256,23 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               <section className="track-picker-menu" aria-label="Saved tracks">
                 <strong>Saved tracks</strong>
                 {trackList.length ? trackList.map((track) => (
-                  <button
-                    className={track.id === document.id ? "active" : ""}
-                    key={track.id}
-                    onClick={() => requestTrackSwitch(track.id)}
-                  >
-                    {track.name}{track.id === document.id ? " (editing)" : ""}
-                  </button>
+                  <div className="track-picker-row" key={track.id}>
+                    <button
+                      className={track.id === document.id ? "active" : ""}
+                      onClick={() => requestTrackSwitch(track.id)}
+                    >
+                      {track.name}{track.id === document.id ? " (editing)" : ""}
+                    </button>
+                    <button
+                      aria-label={`Delete ${track.name}`}
+                      className="track-delete"
+                      disabled={track.id === document.id}
+                      title={track.id === document.id ? "Open another track before deleting this one" : "Delete saved track"}
+                      onClick={() => setPendingDeleteTrack(track)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 )) : <small>No saved tracks yet.</small>}
               </section>
             )}
@@ -2345,6 +2371,18 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               <button onClick={() => setPendingTrackId(undefined)}>Cancel</button>
               <button onClick={() => void confirmTrackSwitch(false)}>Discard &amp; Switch</button>
               <button className="accent" onClick={() => void confirmTrackSwitch(true)}>Save &amp; Switch</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {pendingDeleteTrack && (
+        <div className="track-switch-backdrop" role="dialog" aria-modal="true" aria-label="Delete saved track">
+          <section className="track-switch-dialog">
+            <strong>Delete saved track?</strong>
+            <p>This permanently removes {pendingDeleteTrack.name} from this browser.</p>
+            <div>
+              <button onClick={() => setPendingDeleteTrack(undefined)}>Cancel</button>
+              <button className="danger" onClick={() => void confirmTrackDelete()}>Delete track</button>
             </div>
           </section>
         </div>

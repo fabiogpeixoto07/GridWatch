@@ -55,6 +55,23 @@ export async function loadDocument(
     database.close();
   }
 }
+export async function deleteDocument(id: string): Promise<void> {
+  const database = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(STORE, "readwrite");
+      transaction.objectStore(STORE).delete(id);
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Delete was aborted."));
+      transaction.onerror = () => reject(transaction.error);
+    });
+    if (localStorage.getItem(LAST_DOCUMENT) === id)
+      localStorage.removeItem(LAST_DOCUMENT);
+  } finally {
+    database.close();
+  }
+}
 export async function listDocuments(): Promise<
   Array<{ id: string; name: string }>
 > {

@@ -162,8 +162,12 @@ button:disabled {
   box-shadow: 0 12px 28px rgba(0,0,0,.45);
 }
 .track-picker-menu strong, .track-picker-menu small { display: block; margin: 3px 2px 8px; }
-.track-picker-menu button { display: block; width: 100%; margin: 4px 0; text-align: left; }
+.track-picker-row { display: flex; gap: 4px; margin: 4px 0; }
+.track-picker-menu .track-picker-row > button:first-child { flex: 1; min-width: 0; }
+.track-picker-menu button { display: block; width: 100%; text-align: left; }
 .track-picker-menu button.active { border-color: #70d7ff; color: #70d7ff; }
+.track-picker-menu .track-delete { width: auto; color: #ff9bad; border-color: #6b3545; }
+.track-picker-menu .track-delete:hover { background: #48232f; color: #fff; }
 .track-switch-backdrop {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
   background: rgba(0, 0, 0, .58);
