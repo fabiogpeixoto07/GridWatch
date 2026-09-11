@@ -67,6 +67,15 @@ test("Start/Finish direction reverses the compiled travel, grid heading, and rac
   assert.ok(forward.sensors.some((sensor) => sensor.kind === "start-finish"));
 });
 
+test("the authored Start/Finish marker defines the physical lap seam", () => {
+  const document = authoringDocuments.createSampleDocument();
+  document.markers[0].location.distanceMeters = 160;
+  const compiled = authoringCompiler.compileAuthoringTrack(document);
+  const finish = compiled.sensors.find((sensor) => sensor.kind === "start-finish");
+  assert.ok(finish);
+  assert.ok(Math.hypot(compiled.samples[0].position.x - finish.position.x, compiled.samples[0].position.y - finish.position.y) < 0.001);
+});
+
 test("a native authored track drives deterministically in the physical race engine", async () => {
   const compiled = authoringCompiler.compileAuthoringTrack(authoringDocuments.createSampleDocument());
   const trajectory = speedProfiles.buildRacingTrajectory(compiled, vehicles.DEFAULT_FORMULA_VEHICLE_SPEC);

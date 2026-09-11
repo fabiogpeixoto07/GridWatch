@@ -91,6 +91,17 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
       tangent: { x: -sample.tangent.x, y: -sample.tangent.y, z: -sample.tangent.z },
     }));
   }
+  const startMarker = document.markers.find(
+    (marker) => marker.id === document.grid.startMarkerId && marker.type === "start-finish" && marker.location.pathId === document.grid.pathId,
+  ) ?? document.markers.find(
+    (marker) => marker.type === "start-finish" && marker.location.pathId === document.grid.pathId,
+  );
+  if (startMarker) {
+    const markerPosition = geometry.path.sampleAtDistance(startMarker.location.distanceMeters).position;
+    const startIndex = raw.reduce((nearest, sample, index) =>
+      distanceSquared(sample.position, markerPosition) < distanceSquared(raw[nearest].position, markerPosition) ? index : nearest, 0);
+    raw = [...raw.slice(startIndex), ...raw.slice(0, startIndex)];
+  }
   const spacing = lengthMeters / raw.length;
   const samples: CompiledTrackSample[] = raw.map((sample, index) => {
     const tangent = normalize({ x: sample.tangent.x, y: sample.tangent.y });
@@ -136,6 +147,7 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
   const sensors: CompiledTrack["sensors"] = [];
   for (const marker of document.markers) {
     if (marker.location.pathId !== document.grid.pathId) continue;
+    if (marker.type === "start-finish" && marker.id !== startMarker?.id) continue;
     const kind = marker.type === "start-finish" || marker.type === "sector" || marker.type === "pit-entry" || marker.type === "pit-exit"
       ? marker.type
       : null;
