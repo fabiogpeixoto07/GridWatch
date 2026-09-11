@@ -87,3 +87,19 @@ test("a native authored track drives deterministically in the physical race engi
   assert.deepEqual(first, await run());
   assert.ok(first.every((car) => Number.isFinite(car.position.x) && Number.isFinite(car.heading)));
 });
+
+test("the physical countdown grid uses the authored grid slot coordinates", async () => {
+  const compiled = authoringCompiler.compileAuthoringTrack(authoringDocuments.createSampleDocument());
+  const drivers = [
+    { id: "one", skill: 92, aggression: 90, consistency: 80, cornering: 90, overtaking: 92, defense: 82, risk: 78 },
+    { id: "two", skill: 86, aggression: 82, consistency: 88, cornering: 84, overtaking: 80, defense: 88, risk: 70 },
+  ];
+  const engine = await worldRacing.WorldRaceEngine.create(compiled, vehicles.DEFAULT_FORMULA_VEHICLE_SPEC, drivers);
+  const grid = engine.snapshot();
+  grid.forEach((car, index) => {
+    const slot = compiled.gridSlots[index];
+    assert.ok(Math.hypot(car.position.x - slot.position.x, car.position.y - slot.position.y) < 0.001);
+    assert.ok(Math.abs(Math.atan2(Math.sin(car.heading - slot.heading), Math.cos(car.heading - slot.heading))) < 0.001);
+  });
+  engine.free();
+});

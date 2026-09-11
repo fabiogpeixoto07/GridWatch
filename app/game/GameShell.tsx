@@ -263,6 +263,23 @@ function stableSeedKey(id: string | number) {
   return hash >>> 0;
 }
 
+function applyPhysicalGridPositions(cars: CarState[], engine: WorldRaceEngine) {
+  const snapshots = new Map(engine.snapshot().map((snapshot) => [snapshot.id, snapshot]));
+  for (const car of cars) {
+    const snapshot = snapshots.get(car.id);
+    if (!snapshot) continue;
+    const sampleIndex = Math.floor(snapshot.lapProgress * engine.track.samples.length) % engine.track.samples.length;
+    const sample = engine.track.samples[sampleIndex];
+    const halfWidth = Math.max(1, (sample.widthLeft + sample.widthRight) / 2);
+    car.distance = snapshot.completedDistance / engine.track.lengthMeters;
+    car.lane = clamp(snapshot.lateralOffset / halfWidth, -1.4, 1.4);
+    car.targetLane = car.lane;
+    car.worldX = snapshot.position.x;
+    car.worldY = snapshot.position.y;
+    car.worldHeading = snapshot.heading;
+  }
+}
+
 function worldToCanvas(position: { x: number; y: number }, geometry: Geometry) {
   if (geometry.camera) {
     const { centerX, centerY, rotation, scale, screenX, screenY } = geometry.camera;
@@ -1184,19 +1201,22 @@ export function GameShell() {
           const preparedCars = initialCars(selectedGridSize, seed, totalLaps, ranked, activeCategory.mechanicalFailureChancePercent);
           carsRef.current = preparedCars;
           setCars([...preparedCars]);
-          initializeWorldRaceEngine(preparedCars);
+          const enginePromise = initializeWorldRaceEngine(preparedCars);
           setGridReveal([]);
           setGridDrawClosing(false);
           setRaceStatus("ready");
-          if (autoStart) {
-            initAudio();
-            void worldRaceEnginePromiseRef.current?.then(() => {
+          void enginePromise?.then((engine) => {
+            if (!engine || carsRef.current !== preparedCars) return;
+            applyPhysicalGridPositions(preparedCars, engine);
+            setCars([...preparedCars]);
+            if (autoStart) {
+              initAudio();
               if (statusRef.current !== "ready") return;
               countdownRef.current = 3;
               setCountdown(3);
               setRaceStatus("countdown");
-            });
-          }
+            }
+          });
         }, 300);
       }, 450);
     };
