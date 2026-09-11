@@ -1,26 +1,31 @@
 import type { ChampionshipPlaybackMode } from "../championship/autoplay-director";
 import type { CompetitionCategory } from "../competition-editor";
-import type { Circuit } from "../tracks";
+import { buildTrackGeometry } from "../track-creator/domain/track/geometry";
+import type { RaceTrack } from "../track-creator/race-library";
 import { UI_COPY } from "../ui-copy";
 import { Brand } from "../ui/brand";
 import { SegmentedControl } from "../ui/segmented-control";
 
 const LAP_OPTIONS = [3, 6, 9, 12];
 
-export function TrackPreview({ track, compact = false }: { track: Circuit; compact?: boolean }) {
-  const path = track.points.length ? track.points.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x * 280} ${y * 150}`).join(" ") + " Z" : "";
+export function TrackPreview({ track, compact = false }: { track?: RaceTrack | null; compact?: boolean }) {
+  const samples = track ? buildTrackGeometry(track.trackDocument)?.path.samples ?? [] : [];
+  const bounds = samples.reduce((result, sample) => ({ minX: Math.min(result.minX, sample.position.x), maxX: Math.max(result.maxX, sample.position.x), minY: Math.min(result.minY, sample.position.y), maxY: Math.max(result.maxY, sample.position.y) }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+  const spanX = Math.max(1, bounds.maxX - bounds.minX);
+  const spanY = Math.max(1, bounds.maxY - bounds.minY);
+  const path = samples.length ? samples.map((sample, index) => `${index === 0 ? "M" : "L"} ${(18 + (sample.position.x - bounds.minX) / spanX * 244).toFixed(1)} ${(15 + (sample.position.y - bounds.minY) / spanY * 120).toFixed(1)}`).join(" ") + " Z" : "";
   return (
     <div className={`track-preview ${compact ? "compact" : ""}`}>
-      <svg viewBox="0 0 280 150" role="img" aria-label={UI_COPY.setup.circuitLayout(track.name)}>
-        {path ? <><path d={path} fill="none" stroke="#cfddc8" strokeWidth="18" strokeLinejoin="round" /><path d={path} fill="none" stroke="#343d40" strokeWidth="11" strokeLinejoin="round" /><path d={path} fill="none" stroke="#f1f3ed" strokeWidth="2.5" strokeDasharray="7 7" strokeLinejoin="round" /><path d={path} fill="none" stroke="#e32f3e" strokeWidth="2.5" strokeDasharray="7 7" strokeDashoffset="7" strokeLinejoin="round" /><circle cx={track.points[0][0] * 280} cy={track.points[0][1] * 150} r="4" fill="#f13b45" stroke="#fff" strokeWidth="1.5" /></> : <text x="140" y="78" textAnchor="middle" fill="#65736d" fontSize="12">NO SAVED CIRCUIT</text>}
+      <svg viewBox="0 0 280 150" role="img" aria-label={UI_COPY.setup.circuitLayout(track?.name ?? "track")}>
+        {path ? <><path d={path} fill="none" stroke="#cfddc8" strokeWidth="18" strokeLinejoin="round" /><path d={path} fill="none" stroke="#343d40" strokeWidth="11" strokeLinejoin="round" /><path d={path} fill="none" stroke="#f1f3ed" strokeWidth="2.5" strokeDasharray="7 7" strokeLinejoin="round" /><path d={path} fill="none" stroke="#e32f3e" strokeWidth="2.5" strokeDasharray="7 7" strokeDashoffset="7" strokeLinejoin="round" /></> : <text x="140" y="78" textAnchor="middle" fill="#65736d" fontSize="12">NO SAVED TRACK</text>}
       </svg>
-      {!compact && <div><span>{track.country}</span><strong>{track.name}</strong><small>{UI_COPY.setup.layoutStyle(track.style)}</small></div>}
+      {!compact && track && <div><span>TRACK EDITOR</span><strong>{track.name}</strong><small>AUTHORED TRACK</small></div>}
     </div>
   );
 }
 
 type SharedSetupProps = {
-  catalog: Circuit[];
+  catalog: RaceTrack[];
   categories: CompetitionCategory[];
   selectedCategoryId: string;
   totalLaps: number;
@@ -42,7 +47,7 @@ function RaceFields({ totalLaps, gridSize, maxGridSize, onLapsChange, onGridChan
 
 type SingleRaceSetupProps = SharedSetupProps & {
   selectedTrackChoice: string;
-  selectedTrackPreview: Circuit;
+  selectedTrackPreview: RaceTrack | null;
   activeCategory: CompetitionCategory;
   onTrackChange: (id: string) => void;
   onConfirm: () => void;
@@ -53,10 +58,10 @@ export function SingleRaceSetup(props: SingleRaceSetupProps) {
   return (
     <main className="menu-shell setup-screen"><div className="menu-grid" aria-hidden="true" /><Brand className="menu-brand" /><section className="setup-card">
       <div className="setup-copy"><span className="menu-kicker">{UI_COPY.setup.singleRace}</span><h1>{UI_COPY.setup.singleTitleLead}<br /><em>{UI_COPY.setup.singleTitleAccent}</em></h1><p>{UI_COPY.setup.singleDescription}</p>
-        <div className="menu-fields"><label className="wide"><span>{UI_COPY.setup.circuit}</span><select value={selectedTrackChoice} onChange={(event) => onTrackChange(event.target.value)}><option value="random">{UI_COPY.setup.randomCircuit}</option>{catalog.map((track, index) => <option key={track.id} value={track.id}>{String(index + 1).padStart(2, "0")} · {track.name} — {track.country}</option>)}</select></label><CategoryField categories={categories} value={selectedCategoryId} onChange={onCategoryChange} /><RaceFields totalLaps={totalLaps} gridSize={gridSize} maxGridSize={maxGridSize} onLapsChange={onLapsChange} onGridChange={onGridChange} /></div>
-        <div className="menu-actions"><button className="ghost-action" onClick={onBack}>← {UI_COPY.setup.back}</button><button className="confirm-action" onClick={onConfirm} disabled={!selectedCategoryId}>{UI_COPY.setup.confirmRace} <span>→</span></button></div>
+        <div className="menu-fields"><label className="wide"><span>{UI_COPY.setup.circuit}</span><select value={selectedTrackChoice} onChange={(event) => onTrackChange(event.target.value)}><option value="random">{UI_COPY.setup.randomCircuit}</option>{catalog.map((track, index) => <option key={track.id} value={track.id}>{String(index + 1).padStart(2, "0")} · {track.name}</option>)}</select></label><CategoryField categories={categories} value={selectedCategoryId} onChange={onCategoryChange} /><RaceFields totalLaps={totalLaps} gridSize={gridSize} maxGridSize={maxGridSize} onLapsChange={onLapsChange} onGridChange={onGridChange} /></div>
+        <div className="menu-actions"><button className="ghost-action" onClick={onBack}>← {UI_COPY.setup.back}</button><button className="confirm-action" onClick={onConfirm} disabled={!selectedCategoryId || catalog.length === 0}>{UI_COPY.setup.confirmRace} <span>→</span></button></div>
       </div>
-      <div className="setup-visual"><span className="category-chip">{selectedCategoryId ? UI_COPY.setup.categorySummary(activeCategory.name, activeCategory.drivers.length) : UI_COPY.setup.selectCategoryPrompt}</span>{selectedTrackChoice === "random" && <span className="random-chip">{UI_COPY.setup.randomSelection}</span>}<TrackPreview track={selectedTrackPreview} /><small>{selectedTrackChoice === "random" ? UI_COPY.setup.randomReveal : UI_COPY.setup.catalogPosition(catalog.indexOf(selectedTrackPreview) + 1, catalog.length)}</small></div>
+      <div className="setup-visual"><span className="category-chip">{selectedCategoryId ? UI_COPY.setup.categorySummary(activeCategory.name, activeCategory.drivers.length) : UI_COPY.setup.selectCategoryPrompt}</span>{selectedTrackChoice === "random" && <span className="random-chip">{UI_COPY.setup.randomSelection}</span>}<TrackPreview track={selectedTrackPreview} /><small>{selectedTrackChoice === "random" ? UI_COPY.setup.randomReveal : UI_COPY.setup.catalogPosition(Math.max(0, selectedTrackPreview ? catalog.indexOf(selectedTrackPreview) : -1) + 1, catalog.length)}</small></div>
     </section></main>
   );
 }
@@ -85,7 +90,7 @@ export function ChampionshipSetup(props: ChampionshipSetupProps) {
             {playbackMode === "auto" && <div className="championship-playback-settings"><label><span>{UI_COPY.championship.resultDuration}</span><input type="number" min="2" max="30" value={resultDurationSeconds} onChange={(event) => onResultDurationChange(Number(event.target.value) || 2)} /></label><label><span>{UI_COPY.championship.standingsDuration}</span><input type="number" min="2" max="30" value={standingsDurationSeconds} onChange={(event) => onStandingsDurationChange(Number(event.target.value) || 2)} /></label><label className="championship-visibility-setting"><input type="checkbox" checked={pauseWhenHidden} onChange={(event) => onPauseWhenHiddenChange(event.target.checked)} /><span>{UI_COPY.championship.pauseWhenHidden}</span></label></div>}
           </div>
         </div>
-        <div className="points-key"><span>{UI_COPY.setup.points}</span><strong>{UI_COPY.setup.pointsScale}</strong></div><div className="menu-actions"><button className="ghost-action" onClick={onBack}>← {UI_COPY.setup.back}</button><button className="confirm-action" onClick={onConfirm} disabled={!selectedCategoryId}>{playbackMode === "auto" ? UI_COPY.championship.startAutoBroadcast : UI_COPY.championship.drawChampionship} <span>→</span></button></div>
+        <div className="points-key"><span>{UI_COPY.setup.points}</span><strong>{UI_COPY.setup.pointsScale}</strong></div><div className="menu-actions"><button className="ghost-action" onClick={onBack}>← {UI_COPY.setup.back}</button><button className="confirm-action" onClick={onConfirm} disabled={!selectedCategoryId || catalog.length < 2}>{playbackMode === "auto" ? UI_COPY.championship.startAutoBroadcast : UI_COPY.championship.drawChampionship} <span>→</span></button></div>
       </div>
       <div className="championship-visual"><span className="season-number">{String(championshipLength).padStart(2, "0")}</span><strong>{UI_COPY.setup.uniqueRounds}</strong><div className="track-stack">{catalog.slice(1, 5).map((track, index) => <div key={track.id} style={{ transform: `translate(${index * 8}px, ${index * 8}px) rotate(${index % 2 ? 2 : -2}deg)` }}><TrackPreview track={track} compact /></div>)}</div></div>
     </section></main>

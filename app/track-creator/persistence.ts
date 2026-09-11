@@ -1,4 +1,5 @@
 import type { TrackDocument } from "./domain/track/types.js";
+import { createSampleDocument } from "./domain/track/document.js";
 import { parseTrackDocument } from "./domain/track/schema.js";
 const DATABASE = "gridwatch-track-creator";
 const STORE = "tracks";
@@ -98,6 +99,18 @@ export async function listDocuments(): Promise<
   } finally {
     database.close();
   }
+}
+
+/** Creates the native Track Editor starter circuit once for a new profile. */
+export async function ensureStarterTrack(): Promise<TrackDocument[]> {
+  const summaries = await listDocuments();
+  if (summaries.length > 0) {
+    const documents = await Promise.all(summaries.map((summary) => loadDocument(summary.id)));
+    return documents.filter((document): document is TrackDocument => Boolean(document));
+  }
+  const starter = createSampleDocument();
+  await saveDocument(starter);
+  return [starter];
 }
 export async function loadLastDocument(): Promise<TrackDocument | undefined> {
   const id = localStorage.getItem(LAST_DOCUMENT);

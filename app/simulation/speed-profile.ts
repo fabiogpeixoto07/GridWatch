@@ -1,5 +1,5 @@
 import type { VehicleSpec } from "../domain/vehicle-spec.js";
-import type { CompiledTrack, Vector2 } from "./track-compiler.js";
+import type { CompiledTrack, Vector2 } from "./compiled-track.js";
 
 export type RacingTrajectorySample = {
   progress: number;

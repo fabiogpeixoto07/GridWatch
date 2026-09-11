@@ -1,11 +1,8 @@
 "use client";
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TRACKS, type Circuit } from "../tracks";
-import { loadLegacyCustomCircuits, type LegacyCustomCircuit } from "../track-creator/legacy-store";
-import { isCreatorCircuit, loadCreatorCircuits, creatorCircuitFromDocument, type CreatorCircuit } from "../track-creator/race-library";
-import { migrateLegacyCircuits } from "../track-creator/legacy-migration";
-import { migrateNorthstarCircuitDocument } from "../track-creator/legacy-circuit-document-migration";
+import { loadRaceTracks, raceTrackFromDocument, type RaceTrack } from "../track-creator/race-library";
+import { discardRetiredCircuitEditorData } from "../track-creator/retired-circuit-cleanup";
 import { getThemePalette } from "../track-creator/domain/track/themes";
 import { categoryDrivers, CompetitionEditor, createDefaultCategory, loadCategories, resolveDriverSprite, type CompetitionCategory, type DriverSpriteOverrides } from "../competition-editor";
 import { analyzeTrack, stepDriving, type DrivingGeometry, type DrivingPhase, type OvertakeState } from "../racing";
@@ -20,8 +17,7 @@ import {
   ChampionshipAutoplayDirector,
   type ChampionshipPlaybackMode,
 } from "../championship/autoplay-director";
-import { migrateLegacyTrack } from "../domain/track-document";
-import { compileTrack, type CompiledTrack } from "../simulation/track-compiler";
+import type { CompiledTrack } from "../simulation/compiled-track";
 import { compileAuthoringTrack } from "../simulation/authoring-track-compiler";
 import { WorldRaceEngine, type WorldRaceCarSnapshot } from "../simulation/world-race-engine";
 import {
@@ -187,8 +183,6 @@ const DRIVERS: Driver[] = [
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const CAR_SCALE_FACTOR = 0.85 * 0.7;
 const RACE_ATTRIBUTE_VARIATION = 5;
-const CURB_OFFSET_FACTOR = 0.42;
-const CURB_LINE_WIDTH = 3.4;
 
 function seeded(seed: number) {
   const value = Math.sin(seed * 9283.31 + 17.71) * 43758.5453;
@@ -217,115 +211,6 @@ function compareRaceOrder(a: CarState, b: CarState) {
   if (aFinished !== bFinished) return aFinished ? -1 : 1;
   if (aFinished && bFinished) return a.finishPosition! - b.finishPosition!;
   return b.distance - a.distance;
-}
-
-function catmullRom(
-  p0: readonly number[],
-  p1: readonly number[],
-  p2: readonly number[],
-  p3: readonly number[],
-  t: number,
-) {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  const curved = [
-    0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
-    0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
-  ];
-  const linear = [
-    p1[0] + (p2[0] - p1[0]) * t,
-    p1[1] + (p2[1] - p1[1]) * t,
-  ];
-  const minX = Math.min(p0[0], p1[0], p2[0], p3[0]);
-  const maxX = Math.max(p0[0], p1[0], p2[0], p3[0]);
-  const minY = Math.min(p0[1], p1[1], p2[1], p3[1]);
-  const maxY = Math.max(p0[1], p1[1], p2[1], p3[1]);
-  const blend = 0.12;
-  return [
-    clamp(linear[0] + (curved[0] - linear[0]) * blend, minX, maxX),
-    clamp(linear[1] + (curved[1] - linear[1]) * blend, minY, maxY),
-  ];
-}
-
-function buildGeometry(
-  width: number,
-  height: number,
-  trackPoints: ReadonlyArray<readonly [number, number]>,
-  startIndex = 0,
-): Geometry {
-  const raw: { x: number; y: number }[] = [];
-  const orderedPoints = trackPoints.map((_, index) => trackPoints[(startIndex + index) % trackPoints.length]);
-  const segments = orderedPoints.length;
-  const stepsPerSegment = 30;
-  const minX = Math.min(...orderedPoints.map(([x]) => x));
-  const maxX = Math.max(...orderedPoints.map(([x]) => x));
-  const minY = Math.min(...orderedPoints.map(([, y]) => y));
-  const maxY = Math.max(...orderedPoints.map(([, y]) => y));
-  const fitX = (value: number) =>
-    0.035 + ((value - minX) / Math.max(0.000001, maxX - minX)) * 0.93;
-  const fitY = (value: number) =>
-    0.045 + ((value - minY) / Math.max(0.000001, maxY - minY)) * 0.89;
-  for (let i = 0; i < segments; i++) {
-    const p0 = orderedPoints[(i - 1 + segments) % segments];
-    const p1 = orderedPoints[i];
-    const p2 = orderedPoints[(i + 1) % segments];
-    const p3 = orderedPoints[(i + 2) % segments];
-    for (let step = 0; step < stepsPerSegment; step++) {
-      const [nx, ny] = catmullRom(p0, p1, p2, p3, step / stepsPerSegment);
-      raw.push({ x: fitX(nx) * width, y: fitY(ny) * height });
-    }
-  }
-
-  const cumulative = [0];
-  let total = 0;
-  for (let i = 1; i <= raw.length; i++) {
-    const a = raw[i - 1];
-    const b = raw[i % raw.length];
-    total += Math.hypot(b.x - a.x, b.y - a.y);
-    cumulative.push(total);
-  }
-
-  const samples: TrackSample[] = [];
-  const targetCount = 900;
-  for (let i = 0; i < targetCount; i++) {
-    const target = (i / targetCount) * total;
-    let low = 0;
-    let high = cumulative.length - 1;
-    while (low < high - 1) {
-      const middle = Math.floor((low + high) / 2);
-      if (cumulative[middle] <= target) low = middle;
-      else high = middle;
-    }
-    const a = raw[low % raw.length];
-    const b = raw[(low + 1) % raw.length];
-    const span = cumulative[low + 1] - cumulative[low] || 1;
-    const mix = (target - cumulative[low]) / span;
-    samples.push({
-      x: a.x + (b.x - a.x) * mix,
-      y: a.y + (b.y - a.y) * mix,
-      angle: Math.atan2(b.y - a.y, b.x - a.x),
-      curve: 0,
-    });
-  }
-
-  samples.forEach((sample, index) => {
-    const before = samples[(index - 4 + samples.length) % samples.length];
-    const after = samples[(index + 4) % samples.length];
-    sample.angle = Math.atan2(after.y - before.y, after.x - before.x);
-    let turn = Math.atan2(Math.sin(after.angle - before.angle), Math.cos(after.angle - before.angle));
-    turn = Math.abs(turn);
-    sample.curve = clamp(turn / 0.3, 0, 1);
-  });
-
-  const trackWidth = clamp(width * 0.032, 24, 42);
-  return {
-    samples,
-    width,
-    height,
-    trackWidth,
-    driving: analyzeTrack(samples, trackWidth),
-    worldBounds: { minX: minX * 1_000, maxX: maxX * 1_000, minY: minY * 620, maxY: maxY * 620 },
-  };
 }
 
 function buildCompiledGeometry(
@@ -791,7 +676,7 @@ function drawCar(
   }
 }
 
-function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, track: CreatorCircuit) {
+function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, track: RaceTrack) {
   const compiled = geometry.compiled;
   if (!compiled) return;
   const palette = getThemePalette(track.trackDocument.theme);
@@ -920,271 +805,16 @@ function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, tr
   }
 }
 
-function drawTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, track: Circuit) {
-  if (isCreatorCircuit(track)) {
-    drawAuthoredTrack(ctx, geometry, track);
-    return;
-  }
-  const { samples, width, height, trackWidth } = geometry;
-  ctx.clearRect(0, 0, width, height);
-
-  const grass = ctx.createLinearGradient(0, 0, width, height);
-  const grassPalette = track.style === "street"
-    ? ["#b7c1b8", "#9eaba3", "#87968d"]
-    : track.style === "fast"
-      ? ["#dbe9cb", "#c9dfba", "#b5d0a7"]
-      : ["#e8f0df", "#d7e7cb", "#c4dcba"];
-  grass.addColorStop(0, grassPalette[0]);
-  grass.addColorStop(0.5, grassPalette[1]);
-  grass.addColorStop(1, grassPalette[2]);
-  ctx.fillStyle = grass;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.save();
-  ctx.globalAlpha = 0.24;
-  ctx.strokeStyle = "#a7c39a";
-  ctx.lineWidth = 1;
-  for (let y = -height; y < height * 2; y += 24) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y + width * 0.18);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  const makePath = (offset = 0) => {
-    ctx.beginPath();
-    ctx.moveTo(
-      samples[0].x - Math.sin(samples[0].angle) * offset,
-      samples[0].y + Math.cos(samples[0].angle) * offset,
-    );
-    for (let i = 1; i < samples.length; i++) {
-      ctx.lineTo(
-        samples[i].x - Math.sin(samples[i].angle) * offset,
-        samples[i].y + Math.cos(samples[i].angle) * offset,
-      );
-    }
-    ctx.closePath();
-  };
-
-  const drawCurbEdge = (edge: number) => {
-    ctx.beginPath();
-    let canContinue = false;
-    samples.forEach((sample, index) => {
-      const previous = samples[(index - 1 + samples.length) % samples.length];
-      const next = samples[(index + 1) % samples.length];
-      const turn = Math.abs(
-        Math.atan2(
-          Math.sin(next.angle - sample.angle),
-          Math.cos(next.angle - sample.angle),
-        ),
-      );
-      const offset = trackWidth * CURB_OFFSET_FACTOR;
-      const x = sample.x - Math.sin(sample.angle) * edge * offset;
-      const y = sample.y + Math.cos(sample.angle) * edge * offset;
-      // Tight apexes need a circular offset join. Connecting the incoming and
-      // outgoing curb points around the apex prevents the triangular fold.
-      if (turn > 0.35) {
-        const startAngle = Math.atan2(
-          Math.cos(previous.angle) * edge,
-          -Math.sin(previous.angle) * edge,
-        );
-        const endAngle = Math.atan2(
-          Math.cos(next.angle) * edge,
-          -Math.sin(next.angle) * edge,
-        );
-        let deltaAngle = endAngle - startAngle;
-        while (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
-        while (deltaAngle < -Math.PI) deltaAngle += Math.PI * 2;
-        ctx.moveTo(
-          sample.x + Math.cos(startAngle) * offset,
-          sample.y + Math.sin(startAngle) * offset,
-        );
-        ctx.arc(
-          sample.x,
-          sample.y,
-          offset,
-          startAngle,
-          startAngle + deltaAngle,
-          deltaAngle < 0,
-        );
-        canContinue = true;
-      } else if (!canContinue || index === 0) {
-        ctx.moveTo(x, y);
-        canContinue = true;
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-  };
-
-  // Subtle service roads, gravel runoff and vegetation create the miniature
-  // aerial-map feeling of the reference without obscuring the racing line.
-  ctx.save();
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  makePath(trackWidth * 0.92 + 25);
-  ctx.strokeStyle = "rgba(224, 229, 220, 0.92)";
-  ctx.lineWidth = 13;
-  ctx.stroke();
-  makePath(trackWidth * 0.92 + 38);
-  ctx.strokeStyle = "rgba(177, 196, 166, 0.42)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([18, 14]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-
-  const drawTree = (x: number, y: number, size: number, tone: string) => {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.fillStyle = "rgba(44, 72, 43, 0.16)";
-    ctx.beginPath();
-    ctx.ellipse(2, size * 0.44, size * 0.72, size * 0.25, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#806d4d";
-    ctx.fillRect(-size * 0.08, size * 0.04, size * 0.16, size * 0.52);
-    ctx.fillStyle = tone;
-    ctx.beginPath();
-    ctx.arc(-size * 0.2, 0, size * 0.42, 0, Math.PI * 2);
-    ctx.arc(size * 0.2, -size * 0.08, size * 0.48, 0, Math.PI * 2);
-    ctx.arc(0, -size * 0.32, size * 0.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.18)";
-    ctx.beginPath();
-    ctx.arc(-size * 0.16, -size * 0.42, size * 0.14, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  };
-
-  for (let index = 0; index < 58; index++) {
-    const sample = samples[Math.floor(seeded(index * 31.7 + 4.2) * samples.length)];
-    const side = seeded(index * 47.1 + 9.4) > 0.5 ? 1 : -1;
-    const distance = trackWidth * 0.55 + 32 + seeded(index * 71.3 + 2.1) * 78;
-    const x = sample.x - Math.sin(sample.angle) * side * distance;
-    const y = sample.y + Math.cos(sample.angle) * side * distance;
-    const size = 3.5 + seeded(index * 19.7 + 5.6) * 5.5;
-    drawTree(x, y, size, index % 3 === 0 ? "#729b62" : "#86ab70");
-  }
-
-  const drawGrandstand = (sampleIndex: number, side: number) => {
-    const sample = samples[sampleIndex % samples.length];
-    const offset = side * (trackWidth * 0.72 + 42);
-    const x = sample.x - Math.sin(sample.angle) * offset;
-    const y = sample.y + Math.cos(sample.angle) * offset;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(sample.angle);
-    ctx.fillStyle = "rgba(71, 83, 87, 0.2)";
-    ctx.fillRect(-29, -10, 58, 20);
-    ctx.fillStyle = "#f3f5f2";
-    ctx.fillRect(-25, -8, 50, 15);
-    ctx.fillStyle = "#b5c0c2";
-    for (let row = 0; row < 3; row++) {
-      ctx.fillRect(-21, -5 + row * 4, 42, 1.4);
-    }
-    ctx.restore();
-  };
-
-  drawGrandstand(34, -1);
-  drawGrandstand(Math.floor(samples.length * 0.58), 1);
-
-  makePath();
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.strokeStyle = "rgba(50, 62, 63, 0.28)";
-  ctx.lineWidth = trackWidth + 18;
-  ctx.stroke();
-
-  makePath();
-  const asphalt = ctx.createLinearGradient(0, 0, width, height);
-  asphalt.addColorStop(0, "#3c4549");
-  asphalt.addColorStop(0.5, "#2f373a");
-  asphalt.addColorStop(1, "#252d30");
-  ctx.strokeStyle = asphalt;
-  ctx.lineWidth = trackWidth;
-  ctx.stroke();
-
-  // Deterministic micro-texture keeps the asphalt from reading as a flat fill
-  // while remaining stable between frames and race seeds.
-  ctx.save();
-  ctx.lineWidth = 1;
-  for (let index = 0; index < 260; index += 1) {
-    const sample = samples[Math.floor(seeded(index * 13.7 + 21) * samples.length)];
-    const lateral = (seeded(index * 29.1 + 8) - 0.5) * trackWidth * 0.78;
-    const longitudinal = (seeded(index * 47.3 + 3) - 0.5) * 7;
-    const x = sample.x - Math.sin(sample.angle) * lateral + Math.cos(sample.angle) * longitudinal;
-    const y = sample.y + Math.cos(sample.angle) * lateral + Math.sin(sample.angle) * longitudinal;
-    ctx.fillStyle = index % 5 === 0 ? "rgba(238, 242, 235, .07)" : "rgba(8, 12, 13, .09)";
-    ctx.fillRect(x, y, 0.8 + seeded(index * 5.9) * 1.3, 0.8 + seeded(index * 7.4) * 1.3);
-  }
-  ctx.restore();
-
-  makePath(trackWidth * 0.28);
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([22, 28]);
-  ctx.stroke();
-
-  for (const edge of [-1, 1]) {
-    drawCurbEdge(edge);
-    ctx.strokeStyle = "#f4f1e8";
-    ctx.lineWidth = CURB_LINE_WIDTH;
-    ctx.setLineDash([8, 9]);
-    ctx.lineDashOffset = edge < 0 ? 10 : 0;
-    ctx.stroke();
-
-    drawCurbEdge(edge);
-    ctx.strokeStyle = "#d82c36";
-    ctx.lineWidth = CURB_LINE_WIDTH;
-    ctx.setLineDash([8, 9]);
-    ctx.lineDashOffset = edge < 0 ? 0 : 10;
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-
-  const start = samples[0];
-  const nx = -Math.sin(start.angle);
-  const ny = Math.cos(start.angle);
-  const cells = 10;
-  for (let i = 0; i < cells; i++) {
-    const side = (i / cells - 0.5) * trackWidth;
-    ctx.strokeStyle = i % 2 === 0 ? "#f3f4ef" : "#111516";
-    ctx.lineWidth = trackWidth / cells + 0.8;
-    ctx.beginPath();
-    ctx.moveTo(start.x + nx * side - Math.cos(start.angle) * 2.3, start.y + ny * side - Math.sin(start.angle) * 2.3);
-    ctx.lineTo(start.x + nx * side + Math.cos(start.angle) * 2.3, start.y + ny * side + Math.sin(start.angle) * 2.3);
-    ctx.stroke();
-  }
-
-  const barrierGroups = [0.135, 0.405, 0.735];
-  barrierGroups.forEach((progress, group) => {
-    for (let i = -3; i <= 3; i++) {
-      const sample = samples[Math.floor((progress * samples.length + i * 3 + samples.length) % samples.length)];
-      const bx = sample.x - Math.sin(sample.angle) * (trackWidth / 2 + 11);
-      const by = sample.y + Math.cos(sample.angle) * (trackWidth / 2 + 11);
-      ctx.beginPath();
-      ctx.arc(bx, by, 3.4, 0, Math.PI * 2);
-      ctx.fillStyle = (i + group) % 2 === 0 ? "#e9ecdf" : "#d52d36";
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0,0,0,.5)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-  });
-
-}
-
 const CHAMPIONSHIP_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 
-function shuffledTrackIndices(seed: number, tracks: Circuit[] = TRACKS) {
+function shuffledTrackIndices(seed: number, tracks: RaceTrack[] = []) {
   return tracks
     .map((_, index) => ({ index, order: seeded(seed * 41 + index * 173) }))
     .sort((a, b) => a.order - b.order)
     .map(({ index }) => index);
 }
 
-function randomTrackIndex(seed: number, currentIndex?: number, tracks: Circuit[] = TRACKS) {
+function randomTrackIndex(seed: number, currentIndex?: number, tracks: RaceTrack[] = []) {
   const candidates = shuffledTrackIndices(seed, tracks).filter((index) => index !== currentIndex);
   return candidates[0] ?? 0;
 }
@@ -1196,7 +826,7 @@ export function GameShell() {
   const simulationAccumulatorRef = useRef(0);
   const geometryRef = useRef<Geometry | null>(null);
   const carsRef = useRef<CarState[]>(initialCars(12, 1, 6));
-  const currentTrackRef = useRef<Circuit>(TRACKS[0]);
+  const currentTrackRef = useRef<RaceTrack | null>(null);
   const modeRef = useRef<GameMode | null>(null);
   const raceTimeRef = useRef(0);
   const countdownRef = useRef(3);
@@ -1251,13 +881,12 @@ export function GameShell() {
   const [showDrivingDebug, setShowDrivingDebug] = useState(false);
   const [raceActionsOpen, setRaceActionsOpen] = useState(false);
   const [worldEngineState, setWorldEngineState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [customTracks, setCustomTracks] = useState<LegacyCustomCircuit[]>([]);
-  const [creatorTracks, setCreatorTracks] = useState<CreatorCircuit[]>([]);
+  const [creatorTracks, setCreatorTracks] = useState<RaceTrack[]>([]);
   const [categories, setCategories] = useState<CompetitionCategory[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
-  const catalog = useMemo(() => [...TRACKS, ...customTracks, ...creatorTracks], [creatorTracks, customTracks]);
-  const currentTrack = catalog[currentTrackIndex] ?? catalog[0] ?? TRACKS[0];
+  const catalog = useMemo(() => creatorTracks, [creatorTracks]);
+  const currentTrack = catalog[currentTrackIndex] ?? catalog[0] ?? null;
   const hasCategories = categories.length > 0;
   const activeCategory = categories.find((category) => category.id === selectedCategoryId) ?? categories[0] ?? createDefaultCategory();
   const activeDrivers = useMemo(() => hasCategories ? categoryDrivers(activeCategory) as Driver[] : [], [activeCategory, hasCategories]);
@@ -1275,23 +904,12 @@ export function GameShell() {
 
   useEffect(() => {
     const controller = new AbortController();
-    // Browser storage is restored after hydration to avoid server/client markup divergence.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    const legacyTracks = loadLegacyCustomCircuits();
-    // Keep the legacy catalog visible until its corresponding modular documents are confirmed readable.
-    // This makes clearing IndexedDB recoverable from the still-present legacy localStorage data.
-    setCustomTracks(legacyTracks);
     void (async () => {
-      const migration = await migrateLegacyCircuits(legacyTracks);
-      await migrateNorthstarCircuitDocument();
-      const tracks = await loadCreatorCircuits();
+      await discardRetiredCircuitEditorData();
+      const tracks = await loadRaceTracks();
       if (controller.signal.aborted) return;
       setCreatorTracks(tracks);
-      const availableCreatorIds = new Set(tracks.map((track) => track.id));
-      const hiddenLegacyIds = migration.complete
-        ? availableCreatorIds
-        : migration.migratedIds;
-      setCustomTracks(legacyTracks.filter((track) => !hiddenLegacyIds.has(track.id)));
+      currentTrackRef.current = tracks[0] ?? null;
     })().catch(() => {
       // IndexedDB is optional. The embedded editor exposes its own recovery error when it is unavailable.
     });
@@ -1467,13 +1085,13 @@ export function GameShell() {
   }, []);
 
   const initializeWorldRaceEngine = useCallback((raceCars: CarState[]) => {
+    const selectedTrack = currentTrackRef.current;
+    if (!selectedTrack) return;
     const generation = ++worldRaceEngineGenerationRef.current;
     worldRaceEngineRef.current?.free();
     worldRaceEngineRef.current = null;
     setWorldEngineState("loading");
-    const compiledTrack = isCreatorCircuit(currentTrackRef.current)
-      ? compileAuthoringTrack(currentTrackRef.current.trackDocument)
-      : compileTrack(migrateLegacyTrack(currentTrackRef.current));
+    const compiledTrack = compileAuthoringTrack(selectedTrack.trackDocument);
     const drivers = raceCars.map((car) => {
         return {
           id: String(car.id),
@@ -1540,7 +1158,7 @@ export function GameShell() {
   }, []);
 
   const loadTrack = useCallback((trackIndex: number) => {
-    const nextTrack = catalog[trackIndex] ?? catalog[0] ?? TRACKS[0];
+    const nextTrack = catalog[trackIndex] ?? catalog[0] ?? null;
     currentTrackRef.current = nextTrack;
     geometryRef.current = null;
     setCurrentTrackIndex(trackIndex);
@@ -1564,7 +1182,7 @@ export function GameShell() {
   }, [initAudio, setRaceStatus]);
 
   const beginSingleRace = useCallback(() => {
-    if (!selectedCategoryId || !hasCategories) return;
+    if (!selectedCategoryId || !hasCategories || catalog.length === 0) return;
     const seed = rollRaceSeed();
     const trackIndex =
       selectedTrackChoice === "random"
@@ -1584,7 +1202,7 @@ export function GameShell() {
   }, [autoplayDirector, catalog, hasCategories, loadTrack, resetRace, rollRaceSeed, selectedCategoryId, selectedTrackChoice]);
 
   const beginChampionship = useCallback(() => {
-    if (!selectedCategoryId || !hasCategories) return;
+    if (!selectedCategoryId || !hasCategories || catalog.length < 2) return;
     const seed = rollRaceSeed();
     const raceCount = clamp(Math.round(championshipLength), 2, catalog.length);
     const schedule = shuffledTrackIndices(seed, catalog).slice(0, raceCount);
@@ -2036,7 +1654,7 @@ export function GameShell() {
     if (raceComplete) {
       if (!raceResultRef.current) {
         const snapshot = buildRaceResultSnapshot(carsRef.current, activeDrivers, {
-          trackName: currentTrackRef.current.name,
+          trackName: currentTrackRef.current?.name ?? "Track Editor circuit",
           categoryName: activeCategory.name,
           mode: modeRef.current ?? "single",
           round: championshipRound + 1,
@@ -2082,7 +1700,9 @@ export function GameShell() {
     if (!canvas || !geometry) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    drawTrack(ctx, geometry, currentTrackRef.current);
+    const track = currentTrackRef.current;
+    if (!track) return;
+    drawAuthoredTrack(ctx, geometry, track);
 
     const sorted = [...carsRef.current].sort(compareRaceOrder);
     const leaderId = sorted[0]?.id;
@@ -2184,9 +1804,8 @@ export function GameShell() {
       canvas.height = Math.floor(rect.height * ratio);
       const ctx = canvas.getContext("2d");
       ctx?.setTransform(ratio, 0, 0, ratio, 0, 0);
-      geometryRef.current = isCreatorCircuit(currentTrack)
-        ? buildCompiledGeometry(rect.width, rect.height, compileAuthoringTrack(currentTrack.trackDocument), currentTrack.trackDocument.spectatorFrame)
-        : buildGeometry(rect.width, rect.height, currentTrack.points, currentTrack.startIndex ?? 0);
+      if (!currentTrack) return;
+      geometryRef.current = buildCompiledGeometry(rect.width, rect.height, compileAuthoringTrack(currentTrack.trackDocument), currentTrack.trackDocument.spectatorFrame);
       draw();
     };
     const observer = new ResizeObserver(resize);
@@ -2260,7 +1879,7 @@ export function GameShell() {
   const selectedTrackPreview =
     selectedTrackChoice === "random"
       ? catalog[randomTrackIndex(2026, undefined, catalog)]
-      : catalog.find((track) => track.id === selectedTrackChoice) ?? catalog[0] ?? TRACKS[0];
+      : catalog.find((track) => track.id === selectedTrackChoice) ?? catalog[0] ?? null;
   const isFinalChampionshipRound =
     gameMode === "championship" &&
     championshipSchedule.length > 0 &&
@@ -2300,7 +1919,7 @@ export function GameShell() {
   if (screen === "track-editor") {
     if (!storageReady) return <LoadingScreen title={UI_COPY.editor.loadingLibrary} detail={UI_COPY.editor.restoringCircuits} />;
     return <div className="track-creator-root"><Suspense fallback={<LoadingScreen title="Opening Track Editor" detail="Restoring your local workspace." />}><TrackCreator onSaved={(document) => {
-      const saved = creatorCircuitFromDocument(document);
+      const saved = raceTrackFromDocument(document);
       if (saved) setCreatorTracks((current) => [...current.filter((track) => track.id !== saved.id), saved]);
     }} onBack={() => setScreen("settings")} /></Suspense></div>;
   }
@@ -2330,13 +1949,13 @@ export function GameShell() {
         <Brand className="brand" />
         <div className="event-title">
           <span>{activeCategory.name} · {gameMode === "championship" ? "CHAMPIONSHIP" : "SINGLE RACE"}</span>
-          <strong>{currentTrack.name.toUpperCase()}</strong>
+          <strong>{currentTrack?.name.toUpperCase() ?? "TRACK EDITOR"}</strong>
         </div>
         <RaceActionsMenu containerRef={raceActionsRef} triggerRef={raceActionsTriggerRef} open={raceActionsOpen} status={status} championship={gameMode === "championship"} autoBroadcast={championshipPlaybackMode === "auto"} autoplayPaused={autoplayPaused} finalRound={isFinalChampionshipRound} laps={totalLaps} grid={selectedGridSize} maxGrid={maxGridSize} speed={simSpeed} soundOn={soundOn} onOpenChange={setRaceActionsOpen} onStart={startRace} onPause={togglePause} onRestart={restartRace} onNext={nextRace} onToggleAutoplay={toggleAutoplayPause} onLaps={setTotalLaps} onGrid={setGridSize} onSpeed={setSimSpeed} onSound={toggleSound} onMenu={returnToMenu} />
       </header>
 
       <section className="race-layout">
-        <RaceHud canvasRef={canvasRef} trackName={currentTrack.name} physicalCarCount={cars.filter((car) => car.worldX !== null && car.worldY !== null).length} currentLap={currentLap} totalLaps={totalLaps} raceTime={formatTime(raceTime)} leaderCode={leader ? driverById.get(leader.id)?.code ?? "—" : "—"} leaderColor={leader ? driverById.get(leader.id)?.color ?? "#fff" : "#fff"} bestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : "—"} countdown={status === "countdown" ? countdown : null} overlay={<BroadcastPanel currentLap={currentLap} totalLaps={totalLaps} fastestDriver={bestLapEntry ? driverById.get(bestLapEntry.id)?.code : undefined} fastestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : undefined} entries={standings.map((car, index) => ({ id: car.id, code: driverById.get(car.id)?.code ?? car.id, status: car.mechanical, gapSeconds: index === 0 ? 0 : Math.max(0, (leader ? leader.distance - car.distance : 0) * 22.8) }))} />} />
+        <RaceHud canvasRef={canvasRef} trackName={currentTrack?.name ?? "Track Editor circuit"} physicalCarCount={cars.filter((car) => car.worldX !== null && car.worldY !== null).length} currentLap={currentLap} totalLaps={totalLaps} raceTime={formatTime(raceTime)} leaderCode={leader ? driverById.get(leader.id)?.code ?? "—" : "—"} leaderColor={leader ? driverById.get(leader.id)?.color ?? "#fff" : "#fff"} bestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : "—"} countdown={status === "countdown" ? countdown : null} overlay={<BroadcastPanel currentLap={currentLap} totalLaps={totalLaps} fastestDriver={bestLapEntry ? driverById.get(bestLapEntry.id)?.code : undefined} fastestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : undefined} entries={standings.map((car, index) => ({ id: car.id, code: driverById.get(car.id)?.code ?? car.id, status: car.mechanical, gapSeconds: index === 0 ? 0 : Math.max(0, (leader ? leader.distance - car.distance : 0) * 22.8) }))} />} />
         <LiveTiming currentLap={currentLap} drivers={driverById} championship={gameMode === "championship"} renderCar={(driver) => <TimingCarSprite driver={driver as Driver} category={activeCategory} />} entries={standings.map((car, index) => {
           const gapLaps = leader ? leader.distance - car.distance : 0;
           const resultEntry = raceResult?.entries.find((entry) => entry.id === car.id);
@@ -2348,7 +1967,7 @@ export function GameShell() {
 
       {showRaceResults && raceResult && status === "finished" && <RaceResultsOverlay result={raceResult} championshipRounds={championshipSchedule.length} autoplay={championshipPlaybackMode === "auto"} autoplayPaused={autoplayPaused} onToggleAutoplay={toggleAutoplayPause} onContinue={continueFromRaceResults} onMenu={returnToMenu} />}
 
-      {showRoundStandings && gameMode === "championship" && <ChampionshipStandingsOverlay standings={championshipStandings} round={championshipRound + 1} totalRounds={championshipSchedule.length} trackName={currentTrack.name} categoryName={activeCategory.name} autoplay={championshipPlaybackMode === "auto"} autoplayPaused={autoplayPaused} onToggleAutoplay={toggleAutoplayPause} onNextRace={nextRace} />}
+      {showRoundStandings && gameMode === "championship" && <ChampionshipStandingsOverlay standings={championshipStandings} round={championshipRound + 1} totalRounds={championshipSchedule.length} trackName={currentTrack?.name ?? "Track Editor circuit"} categoryName={activeCategory.name} autoplay={championshipPlaybackMode === "auto"} autoplayPaused={autoplayPaused} onToggleAutoplay={toggleAutoplayPause} onNextRace={nextRace} />}
 
       <footer className="control-deck">
         <div className="setup-controls">

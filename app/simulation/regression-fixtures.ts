@@ -1,6 +1,6 @@
-import { migrateLegacyTrack } from "../domain/track-document.js";
 import { DEFAULT_FORMULA_VEHICLE_SPEC } from "../domain/vehicle-spec.js";
-import { compileTrack } from "./track-compiler.js";
+import { createSampleDocument } from "../track-creator/domain/track/document.js";
+import { compileAuthoringTrack } from "./authoring-track-compiler.js";
 import { WorldRaceEngine, type RaceEngineDriver } from "./world-race-engine.js";
 
 export type RegressionCircuitStyle = "fast" | "flowing" | "technical" | "street" | "custom";
@@ -77,8 +77,10 @@ const rounded = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
 
 /** Replays one named seed into stable metrics suitable for numerical regression comparison. */
 export async function runRegressionFixture(fixture: RegressionFixture): Promise<RegressionMetrics> {
-  const document = migrateLegacyTrack({ id: fixture.id, name: fixture.id, country: "Regression", style: fixture.style, points: pointsFor(fixture.style) });
-  const track = compileTrack(document, 2.5);
+  const document = createSampleDocument();
+  document.id = fixture.id;
+  document.metadata.name = fixture.id;
+  const track = compileAuthoringTrack(document);
   const drivers = driversFor(fixture);
   const engine = await WorldRaceEngine.create(track, DEFAULT_FORMULA_VEHICLE_SPEC, drivers);
   drivers.forEach((driver, index) => engine.setPerformanceModifier(driver.id, (seeded(fixture.seed * 3 + index * 101) - 0.5) * 0.16));

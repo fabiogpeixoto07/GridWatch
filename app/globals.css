@@ -3223,26 +3223,6 @@ select:disabled {
   }
 }
 
-/* Circuit editor */
-.chunk-editor-shell .editor-canvas-wrap { background-color: #cbdcbf; background-image: linear-gradient(rgba(203, 220, 191, .8), rgba(203, 220, 191, .8)), url('/assets/track-materials.svg'); }
-.chunk-editor-shell .editor-canvas { max-width: none; width: min(100%, 1100px); transform-origin: center; }
-.chunk-new-button { width: 100%; min-height: 32px; margin-top: 12px; border: 1px solid #ef4b53; border-radius: 5px; background: #fff2f2; color: #a62f36; font-size: 9px; font-weight: 900; letter-spacing: .08em; cursor: pointer; }
-.chunk-palette-label { margin-top: 20px !important; }
-.chunk-group { margin-top: 12px; display: grid; gap: 4px; }
-.chunk-group > strong { color: #89968d; font-size: 7px; letter-spacing: .1em; }
-.chunk-group button { min-height: 34px; padding: 6px 8px; display: grid; gap: 3px; border: 1px solid #d4ded5; border-radius: 4px; background: #fff; color: #31413a; cursor: grab; text-align: left; font-size: 8px; font-weight: 800; }
-.chunk-group button:hover, .chunk-group button.active { border-color: #1769ff; background: #eef4ff; }
-.chunk-group button small { color: #89968d; font-size: 7px; font-weight: 600; }
-.chunk-import { margin-top: 14px; padding: 9px; display: grid; gap: 6px; border: 1px dashed #b8c8ba; border-radius: 5px; color: #68766e; font-size: 8px; font-weight: 900; letter-spacing: .08em; cursor: pointer; }
-.chunk-import input { width: 100%; font-size: 8px; }
-.chunk-instance { cursor: grab; }
-.chunk-instance.selected { filter: drop-shadow(0 0 5px rgba(23, 105, 255, .75)); }
-.selected-chunk-name { display: block; margin-top: 8px; color: #31413a; font-size: 10px; font-weight: 900; }
-.connector-calibration > div { margin-top: 10px; padding-top: 8px; border-top: 1px solid #d5dfd7; }
-.connector-calibration > div > small { color: #1769ff; font-size: 8px; font-weight: 900; letter-spacing: .1em; }
-.empty-circuit-notice { margin: 18px auto 0; max-width: 520px; color: var(--muted); font-size: 13px; line-height: 1.5; text-align: center; }
-.main-options button:disabled { opacity: .48; cursor: not-allowed; transform: none; }
-.strategy-meta { color: #809087; font-size: 8px; letter-spacing: .04em; }
 .track-editor-shell {
   min-height: 100vh;
   background: #eef3ec;

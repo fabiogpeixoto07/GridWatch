@@ -56,7 +56,7 @@ The artificial intelligence is a deterministic rules-and-state-machine system. I
 
 ### Track Editor
 
-The Track Editor is a modular, document-based replacement for the retired point-loop Circuit Editor. It supports:
+The Track Editor is the game’s sole circuit-authoring and racing source. It supports:
 
 - Reusable straights, turns, chicanes, route connections, and primary/pit/alternate paths. The Freeform tool is a guided End → Start bridge: select two open connectors on the active route and it draws a tangent-aligned road using the selected Start piece's settings; its intentional joins are permitted while unrelated road collisions remain blocked.
 - Dragging an existing road evaluates every connector on that road for nearby compatible open connectors, so a snap suggestion remains available regardless of which end is moved over a matching connection point. A snap also aligns the piece elevation to its target connector instead of rejecting a valid plan-view connection.
@@ -67,7 +67,7 @@ The Track Editor is a modular, document-based replacement for the retired point-
 - Props and markers are directly selectable on the canvas. Drag either item to move it; its inspector and the Delete key provide removal without returning to its creation tool.
 - Direct conversion of a valid primary route into the same compiled physical track contract used by the race engine, including direction, grid, elevation, edge materials, kerbs, barriers, props, and overlay assets. Elevation provides both visual shading and an uphill/downhill grade force. Runoff slows cars according to its material, while sand can retire a car once 70% of its width leaves the circuit; barrier impacts leave a visible car before its tow animation moves it off-track.
 
-New tracks are stored as versioned `.track.json` documents in IndexedDB. Version 3 documents persist independent edge settings and overlays, while older saves are hydrated with their existing environment as the left/right defaults. Existing Circuit Editor saves are migrated once on load and remain recoverable from their legacy browser storage if a migration target is unavailable.
+New tracks are stored as versioned `.track.json` documents in IndexedDB. Version 3 documents persist independent edge settings and overlays, while older native Track Editor saves are hydrated with their existing environment as the left/right defaults. Racing accepts only valid, closed Track Editor documents and uses their authored route, grid, direction, spectator frame, elevation, environment, props, and visual assets directly. On a fresh profile, GridWatch saves the native Starter Oval automatically. Retired Circuit Editor browser data is permanently discarded during the upgrade and cannot be imported or recovered.
 
 ### Competition editor
 
@@ -85,15 +85,9 @@ The competition editor currently supports:
 - IndexedDB-backed category library and local draft autosave/recovery, validation, and protected official content editing.
 - Category racing-default controls use the same light editor-field styling as the rest of the Competition Editor.
 
-## Circuit catalog
+## Track library
 
-GridWatch ships with one fictional circuit, Northstar, and 49 named real-world venues. The named layouts are normalized 2D representations rather than survey-accurate reproductions:
-
-- 31 currently use normalized centerlines from the MIT-licensed `bacinger/f1-circuits` dataset.
-- 14 use curated local approximations.
-- 4 use specially tuned local layouts in preference to their dataset versions.
-
-The result is a broad, recognizable catalog designed for the full-circuit spectator presentation. Elevation, banking, and exact real-world scale are not currently represented.
+The racing catalog is built exclusively from saved Track Editor documents. The initial Starter Oval is a fully native document; players can create, import, edit, or delete tracks from the Track Editor. Racing modes remain unavailable when no valid saved track exists, and championships require at least two.
 
 ## Engine and technology
 
@@ -244,9 +238,8 @@ This baseline confirms that the checked-in implementation builds and that its co
 | `app/simulation/` | Track compilation, speed profiles, Rapier vehicle physics, and race AI. |
 | `app/race/` | HUD, live timing, race actions, broadcast callouts, and results. |
 | `app/championship/` | Championship presentation and Auto Broadcast timing. |
-| `app/domain/` | Versioned vehicle, track, race protocol, replay, and championship contracts. |
-| `app/editor/` | Editor commands and focused editing components. |
-| `app/track-creator/` | Modular Track Editor, versioned document schema, persistence, and legacy migration. |
+| `app/domain/` | Versioned vehicle, race protocol, replay, and championship contracts. |
+| `app/track-creator/` | Modular Track Editor, versioned document schema, native persistence, and race-library bridge. |
 | `public/assets/` | Versioned sprites, materials, effects, and scenery assets. |
 | `tests/` | Domain, simulation, artifact, quality-contract, and browser tests. |
 | `worker/` | Cloudflare/Vinext hosting entry point. |

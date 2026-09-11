@@ -8,9 +8,9 @@ const read = (path) => readFile(new URL(path, root), "utf8");
 test("browser-only libraries restore after hydration", async () => {
   const page = await read("app/game/GameShell.tsx");
   const editor = await read("app/competition-editor.tsx");
-  assert.match(page, /useState<CreatorCircuit\[\]>\(\[\]\)/);
-  assert.match(page, /loadCreatorCircuits\(\)/);
-  assert.match(page, /migrateLegacyCircuits\(legacyTracks\)/);
+  assert.match(page, /useState<RaceTrack\[\]>\(\[\]\)/);
+  assert.match(page, /loadRaceTracks\(\)/);
+  assert.match(page, /discardRetiredCircuitEditorData\(\)/);
   assert.match(editor, /await readCompetitionDocument/);
   assert.match(editor, /indexedDB\.open\(COMPETITION_DATABASE, 1\)/);
   assert.match(editor, /loadDraft\(\)/);
@@ -135,7 +135,7 @@ test("reliability foundation exposes repositories, cached assets, and editor saf
   const storage = await read("app/storage.ts");
   const sprites = await read("app/lib/sprite-service.ts");
   const track = await read("app/track-creator/App.tsx");
-  const migration = await read("app/track-creator/legacy-migration.ts");
+  const cleanup = await read("app/track-creator/retired-circuit-cleanup.ts");
   const category = await read("app/competition-editor.tsx");
   assert.match(storage, /StorageRepository/);
   assert.match(storage, /createStorageRepository/);
@@ -146,8 +146,8 @@ test("reliability foundation exposes repositories, cached assets, and editor saf
   assert.match(track, /GHOST_STEP_SECONDS/);
   assert.match(track, /spectatorFrame/);
   assert.match(track, /terrainFollowingTrack/);
-  assert.match(migration, /legacyMigrationCompleted/);
-  assert.match(migration, /migrateLegacyCircuit/);
+  assert.match(cleanup, /deleteDatabase\("gridwatch-circuits"\)/);
+  assert.match(cleanup, /gridwatch\.custom-circuits/);
   assert.match(category, /isSafeSvg/);
   assert.match(category, /2–4 character code/);
 });
@@ -225,19 +225,18 @@ test("race driving uses fixed simulation, analyzed geometry, and stateful traffi
 
 test("studio simulation foundation provides physical documents, shared geometry, and deterministic contacts", async () => {
   const vehicle = await read("app/domain/vehicle-spec.ts");
-  const track = await read("app/domain/track-document.ts");
-  const compiler = await read("app/simulation/track-compiler.ts");
+  const track = await read("app/track-creator/domain/track/types.ts");
+  const compiler = await read("app/simulation/compiled-track.ts");
   const physics = await read("app/simulation/engine/rapier-vehicle-world.ts");
   const director = await read("app/championship/autoplay-director.ts");
   const page = await read("app/game/GameShell.tsx");
   const hud = await read("app/race/RaceHud.tsx");
   assert.match(vehicle, /massKg/);
   assert.match(vehicle, /wheelbaseMeters/);
-  assert.match(track, /TRACK_DOCUMENT_VERSION = 2/);
-  assert.match(track, /startingGrid/);
-  assert.match(track, /timingSectors/);
-  assert.match(track, /pitLane/);
-  assert.match(compiler, /arc-length geometry/);
+  assert.match(track, /TrackDocument/);
+  assert.match(track, /spectatorFrame/);
+  assert.match(track, /environment/);
+  assert.match(compiler, /canonical geometry contract/);
   assert.match(compiler, /leftBoundary/);
   assert.match(compiler, /surfaceRibbon/);
   assert.match(compiler, /colliders/);

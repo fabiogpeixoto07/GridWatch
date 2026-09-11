@@ -9,11 +9,10 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 const temporary = await mkdtemp(join(tmpdir(), "gridwatch-domain-"));
 const compiler = new URL("../node_modules/typescript/bin/tsc", import.meta.url);
-const compile = spawnSync(process.execPath, [fileURLToPath(compiler), "app/lib/sprite-service.ts", "app/editor/track/commands.ts", "app/race/lifecycle.ts", "app/game/game-reducer.ts", "app/game/session-controller.ts", "app/domain/championship-session.ts", "app/storage.ts", "--target", "es2022", "--module", "nodenext", "--moduleResolution", "nodenext", "--outDir", temporary, "--skipLibCheck"], { cwd: fileURLToPath(root), encoding: "utf8" });
+const compile = spawnSync(process.execPath, [fileURLToPath(compiler), "app/lib/sprite-service.ts", "app/race/lifecycle.ts", "app/game/game-reducer.ts", "app/game/session-controller.ts", "app/domain/championship-session.ts", "app/storage.ts", "--target", "es2022", "--module", "nodenext", "--moduleResolution", "nodenext", "--outDir", temporary, "--skipLibCheck"], { cwd: fileURLToPath(root), encoding: "utf8" });
 assert.equal(compile.status, 0, compile.stderr || compile.stdout);
 const sprites = await import(pathToFileURL(join(temporary, "lib", "sprite-service.js")).href);
 const storage = await import(pathToFileURL(join(temporary, "storage.js")).href);
-const commands = await import(pathToFileURL(join(temporary, "editor", "track", "commands.js")).href);
 const lifecycle = await import(pathToFileURL(join(temporary, "race", "lifecycle.js")).href);
 const game = await import(pathToFileURL(join(temporary, "game", "game-reducer.js")).href);
 const sessions = await import(pathToFileURL(join(temporary, "game", "session-controller.js")).href);
@@ -54,36 +53,6 @@ test("storage repository reads legacy data and writes versioned envelopes", () =
   assert.equal(repository.reset(), true);
   assert.deepEqual(repository.load(), []);
   delete globalThis.window;
-});
-
-test("track commands are immutable and keep start positions valid", () => {
-  const original = { points: [[0, 0], [1, 0], [1, 1]], startIndex: 2, width: 1 };
-  const inserted = commands.applyTrackCommand(original, { type: "insertPoint", index: 1, point: [0.5, 0] });
-  assert.equal(inserted.points.length, 4);
-  assert.equal(original.points.length, 3);
-  const removed = commands.applyTrackCommand(inserted, { type: "removePoint", index: 3 });
-  assert.equal(removed.startIndex, 2);
-  const started = commands.applyTrackCommand(removed, { type: "setStart", index: 99 });
-  assert.equal(started.startIndex, 2);
-});
-
-test("TrackDocumentV2 commands preserve identity and increment revisions", () => {
-  const document = {
-    version: 2, id: "test", name: "Test", country: "Test", style: "technical", closed: true,
-    controlPoints: Array.from({ length: 8 }, (_, index) => ({ id: `p${index}`, x: index * 10, y: 0, widthLeft: 7, widthRight: 7, mode: "smooth" })),
-    startIndex: 0, sectors: [1 / 3, 2 / 3], gridSlots: 2, startingGrid: [], timingSectors: [], pitLane: null,
-    surfaceZones: [], curbZones: [], runOff: { left: { surface: "grass", width: 8 }, right: { surface: "grass", width: 8 } },
-    barriers: { left: true, right: true, offsetMeters: 1.5 }, revision: 4, sourceRevision: "test",
-  };
-  const moved = commands.applyTrackDocumentCommand(document, { type: "moveControlPoints", ids: ["p2", "p3"], dx: 5, dy: -2 });
-  assert.equal(moved.controlPoints[2].x, 25);
-  assert.equal(moved.controlPoints[3].y, -2);
-  assert.equal(document.controlPoints[2].x, 20);
-  assert.equal(moved.revision, 5);
-  const widened = commands.applyTrackDocumentCommand(moved, { type: "setSegmentWidth", ids: ["p2"], widthLeft: 1, widthRight: 10 });
-  assert.equal(widened.controlPoints[2].widthLeft, 3);
-  assert.equal(widened.controlPoints[2].widthRight, 10);
-  assert.deepEqual(widened.controlPoints.map((point) => point.id), document.controlPoints.map((point) => point.id));
 });
 
 test("race lifecycle rejects invalid state combinations", () => {

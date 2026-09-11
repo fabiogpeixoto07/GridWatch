@@ -1,6 +1,6 @@
 import type { RigidBody, World } from "@dimforge/rapier2d-deterministic";
 import type { VehicleSpec } from "../../domain/vehicle-spec.js";
-import type { CompiledTrack, Vector2 } from "../track-compiler.js";
+import type { CompiledTrack, Vector2 } from "../compiled-track.js";
 
 export type VehicleControls = { throttle: number; brake: number; steering: number };
 export type VehiclePhysicsState = {

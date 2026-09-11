@@ -1,7 +1,7 @@
 import type { VehicleSpec } from "../domain/vehicle-spec.js";
 import { RapierVehicleWorld, type VehiclePhysicsState } from "./engine/rapier-vehicle-world.js";
 import { buildRacingTrajectory, type RacingTrajectory } from "./speed-profile.js";
-import type { CompiledTrack, Vector2 } from "./track-compiler.js";
+import type { CompiledTrack, Vector2 } from "./compiled-track.js";
 
 export type RaceEngineDriver = {
   id: string;

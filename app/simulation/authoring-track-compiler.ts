@@ -1,7 +1,7 @@
 import { generateGrid } from "../track-creator/domain/track/authoring.js";
 import { buildTrackGeometry } from "../track-creator/domain/track/geometry.js";
 import type { PathSample, TrackDocument } from "../track-creator/domain/track/types.js";
-import type { CompiledTrack, CompiledTrackSample, Vector2 } from "./track-compiler.js";
+import type { CompiledTrack, CompiledTrackSample, Vector2 } from "./compiled-track.js";
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
 
