@@ -826,6 +826,31 @@ function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, tr
   }
 }
 
+function drawAuthoredGridMarks(ctx: CanvasRenderingContext2D, geometry: Geometry) {
+  const compiled = geometry.compiled;
+  if (!compiled) return;
+  const scale = geometry.camera?.scale ?? 1;
+  for (const slot of compiled.gridSlots) {
+    const position = worldToCanvas(slot.position, geometry);
+    const tip = worldToCanvas({
+      x: slot.position.x + Math.cos(slot.heading),
+      y: slot.position.y + Math.sin(slot.heading),
+    }, geometry);
+    ctx.save();
+    ctx.translate(position.x, position.y);
+    ctx.rotate(Math.atan2(tip.y - position.y, tip.x - position.x));
+    ctx.strokeStyle = "rgba(247,247,242,.98)";
+    ctx.lineWidth = Math.max(1, scale * .34);
+    ctx.beginPath();
+    ctx.moveTo(-1.55 * scale, -.8 * scale);
+    ctx.lineTo(1.25 * scale, -.8 * scale);
+    ctx.lineTo(1.25 * scale, .8 * scale);
+    ctx.lineTo(-1.55 * scale, .8 * scale);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 const CHAMPIONSHIP_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 
 function shuffledTrackIndices(seed: number, tracks: RaceTrack[] = []) {
@@ -1784,6 +1809,7 @@ export function GameShell() {
     const track = currentTrackRef.current;
     if (!track) return;
     drawAuthoredTrack(ctx, geometry, track);
+    drawAuthoredGridMarks(ctx, geometry);
 
     if (statusRef.current === "grid-draw" && geometry.compiled) {
       gridReveal.forEach((driver, index) => {
