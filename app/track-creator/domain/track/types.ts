@@ -48,6 +48,12 @@ export interface TrackModule {
   parameters: Record<string, number>;
   controlPoints?: PathControlPoint[];
   properties?: TrackPropertyOverride;
+  /** Records an editor-generated End → Start bridge without changing legacy freeform modules. */
+  generatedBridge?: {
+    sourceEnd: ConnectorReference;
+    targetStart: ConnectorReference;
+    inheritedFromModuleId: string;
+  };
 }
 
 export interface ModuleConnection {

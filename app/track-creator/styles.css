@@ -146,6 +146,35 @@ button:disabled {
   border-color: #ff7b9c;
   color: #ff7b9c;
 }
+.track-picker { position: relative; }
+.track-picker-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 250px;
+  max-height: 330px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #354853;
+  border-radius: 6px;
+  background: #101a23;
+  box-shadow: 0 12px 28px rgba(0,0,0,.45);
+}
+.track-picker-menu strong, .track-picker-menu small { display: block; margin: 3px 2px 8px; }
+.track-picker-menu button { display: block; width: 100%; margin: 4px 0; text-align: left; }
+.track-picker-menu button.active { border-color: #70d7ff; color: #70d7ff; }
+.track-switch-backdrop {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  background: rgba(0, 0, 0, .58);
+}
+.track-switch-dialog {
+  width: min(430px, calc(100vw - 32px)); padding: 20px; border: 1px solid #435562;
+  border-radius: 8px; background: #111d27; box-shadow: 0 20px 50px rgba(0,0,0,.6);
+}
+.track-switch-dialog strong { font-size: 16px; }
+.track-switch-dialog p { color: #a8c9d8; }
+.track-switch-dialog > div { display: flex; justify-content: flex-end; gap: 8px; }
 .workspace {
   min-height: 0;
   display: grid;

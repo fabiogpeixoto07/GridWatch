@@ -4,6 +4,7 @@ import type {
   TrackModule,
   TrackPath,
   Vec2,
+  ConnectorReference,
 } from "../domain/track/types.js";
 import {
   buildAllPathGeometries,
@@ -43,7 +44,7 @@ interface CanvasViewportProps {
   spectatorVisible: boolean;
   testDistance: number;
   testPathId?: string;
-  penPoints?: Vec2[];
+  bridgeSourceEnd?: ConnectorReference;
   onViewportChange: (viewport: ViewportState) => void;
   onSelectModule: (moduleId?: string) => void;
   onSelectPathPoint: (pathId: string, pointId?: string) => void;
@@ -456,8 +457,6 @@ export function CanvasViewport(props: CanvasViewportProps) {
       drawOpenConnectors(context, toScreen);
       drawModules(context, toScreen);
       drawPlacementPreview(context, toScreen);
-      if (props.penPoints?.length)
-        drawPathLine(context, props.penPoints, toScreen, "#70d7ff", 3, false);
     }
     context.restore();
     if (props.spectatorVisible || props.spectatorPreview)
@@ -792,14 +791,17 @@ export function CanvasViewport(props: CanvasViewportProps) {
   ) {
     getOpenConnectors(props.document).forEach(({ module, connector }) => {
       const screen = toScreen(connector.position);
-      context.fillStyle = "#ffcc66";
+      const selected =
+        props.bridgeSourceEnd?.moduleId === module.id &&
+        props.bridgeSourceEnd.connectorId === connector.id;
+      context.fillStyle = selected ? "#70d7ff" : "#ffcc66";
       context.strokeStyle = "#101820";
       context.lineWidth = 2;
       context.beginPath();
       context.arc(screen.x, screen.y, 5, 0, Math.PI * 2);
       context.fill();
       context.stroke();
-      if (module.id === props.selectedModuleId) {
+      if (module.id === props.selectedModuleId || selected) {
         context.font = "10px monospace";
         context.fillStyle = "#ffe5a0";
         context.fillText(connector.id, screen.x + 8, screen.y - 8);

@@ -110,6 +110,47 @@ export function connectorsCompatible(
     Math.abs(Math.abs(angleDelta(a.tangent, b.tangent)) - Math.PI) < 0.001
   );
 }
+
+/**
+ * Generated Freeform bridges intentionally retain the selected Start piece's
+ * width. Their first seam may therefore step from the selected End piece.
+ * All other connector constraints remain exact.
+ */
+export function connectionCompatible(
+  document: TrackDocument,
+  aRef: ConnectorReference,
+  bRef: ConnectorReference,
+  a: ConnectorDefinition,
+  b: ConnectorDefinition,
+): boolean {
+  if (connectorsCompatible(a, b)) return true;
+  const pair = [
+    { ref: aRef, connector: a },
+    { ref: bRef, connector: b },
+  ];
+  const bridge = document.modules.find(
+    (module) =>
+      module.generatedBridge &&
+      pair.some(
+        (item) =>
+          item.ref.moduleId === module.id && item.ref.connectorId === "start",
+      ),
+  );
+  if (!bridge?.generatedBridge) return false;
+  const external = pair.find((item) => item.ref.moduleId !== bridge.id);
+  if (
+    !external ||
+    external.ref.moduleId !== bridge.generatedBridge.sourceEnd.moduleId ||
+    external.ref.connectorId !== bridge.generatedBridge.sourceEnd.connectorId
+  )
+    return false;
+  return (
+    a.type === b.type &&
+    distance(a.position, b.position) <= CONNECTION_TOLERANCE &&
+    Math.abs(a.position.z - b.position.z) <= CONNECTION_TOLERANCE &&
+    Math.abs(Math.abs(angleDelta(a.tangent, b.tangent)) - Math.PI) < 0.001
+  );
+}
 export function getOpenConnectors(
   document: TrackDocument,
   pathId?: string,
@@ -233,7 +274,10 @@ function traverseModules(
       );
       if (
         !connection ||
-        !connectorsCompatible(
+        !connectionCompatible(
+          document,
+          a,
+          b,
           getWorldConnector(segments[i].module, a.connectorId)!,
           getWorldConnector(
             segments[(i + 1) % ends.length].module,
@@ -273,7 +317,7 @@ function traverseModules(
       key(connection.a) === key(connection.b) ||
       graph.has(key(connection.a)) ||
       graph.has(key(connection.b)) ||
-      !connectorsCompatible(ac, bc)
+      !connectionCompatible(document, connection.a, connection.b, ac, bc)
     )
       return;
     graph.set(key(connection.a), connection.b);

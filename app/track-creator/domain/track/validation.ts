@@ -3,6 +3,7 @@ import {
   buildTrackGeometry,
   getWorldConnector,
   connectorsCompatible,
+  connectionCompatible,
   effectiveModule,
   modulesOverlap,
   isPointDrivable,
@@ -345,7 +346,7 @@ function validateCore(document: TrackDocument): ValidationReport {
           [connection.id],
         ),
       );
-    else if (!connectorsCompatible(a, b))
+    else if (!connectionCompatible(document, connection.a, connection.b, a, b))
       issues.push(
         issue(
           "connection.incompatible",
@@ -354,6 +355,17 @@ function validateCore(document: TrackDocument): ValidationReport {
           [connection.a.moduleId, connection.b.moduleId],
           a.position,
           "Align the modules or reconnect matching ends.",
+        ),
+      );
+    else if (!connectorsCompatible(a, b))
+      issues.push(
+        issue(
+          "connection.bridge-width-step",
+          "warning",
+          "This generated Freeform bridge uses the selected Start piece width, creating a width step at the selected End-piece connection.",
+          [connection.a.moduleId, connection.b.moduleId],
+          a.position,
+          "Match the adjacent road widths to remove the step.",
         ),
       );
     if (a && b && Math.abs(a.position.z - b.position.z) > 0.5)

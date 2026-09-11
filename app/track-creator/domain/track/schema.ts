@@ -50,6 +50,13 @@ export const TrackDocumentSchema = z.object({
       parameters: z.record(z.string(), number),
       controlPoints: z.array(controlPoint).min(2).max(128).optional(),
       properties: properties.optional(),
+      generatedBridge: z
+        .object({
+          sourceEnd: connector,
+          targetStart: connector,
+          inheritedFromModuleId: id,
+        })
+        .optional(),
     }),
   ),
   connections: z.array(z.object({ id, a: connector, b: connector })),

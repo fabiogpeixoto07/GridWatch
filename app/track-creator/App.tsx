@@ -15,8 +15,7 @@ import {
   DEFAULT_CATALOG_SETTINGS,
   placeCatalogEntity,
 } from "./domain/track/catalog.js";
-import { defaultFreeform } from "./domain/track/advancedModules.js";
-import { syncPitJunctions } from "./domain/track/routes.js";
+import { createConnectorBridge, syncPitJunctions } from "./domain/track/routes.js";
 import {
   modulePathId,
   buildAllPathGeometries,
@@ -55,6 +54,7 @@ import type {
   TrackModule,
   TrackProp,
   Vec2,
+  ConnectorReference,
 } from "./domain/track/types.js";
 import {
   downloadDocument,
@@ -84,6 +84,7 @@ import {
 
 import {
   prepareModulePlacement,
+  authoredModulesOverlap,
   pitPathId,
   rebuildPitWithModules,
   attachPitEndpoints,
@@ -151,9 +152,10 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
   const [testRunning, setTestRunning] = useState(false);
   const [ghost, setGhost] = useState(createGhost);
   const [storageReady, setStorageReady] = useState(false);
-  const [savedTracks, setSavedTracks] = useState<
-    Array<{ id: string; name: string }> | undefined
-  >();
+  const [trackList, setTrackList] = useState<Array<{ id: string; name: string }>>([]);
+  const [trackPickerOpen, setTrackPickerOpen] = useState(false);
+  const [pendingTrackId, setPendingTrackId] = useState<string>();
+  const [dirty, setDirty] = useState(false);
   const [placementParameters, setPlacementParameters] = useState<
     Record<string, number>
   >({});
@@ -169,7 +171,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
   const [catalogSettings, setCatalogSettings] = useState(
     DEFAULT_CATALOG_SETTINGS,
   );
-  const [penPoints, setPenPoints] = useState<Vec2[]>([]);
+  const [bridgeSourceEnd, setBridgeSourceEnd] = useState<ConnectorReference>();
   const [markerType, setMarkerType] = useState<MarkerType>("checkpoint");
   const [zoneType, setZoneType] = useState("drs");
   const [zonePathId, setZonePathId] = useState("primary");
@@ -257,21 +259,14 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
       setActiveRouteId(pitId);
       return;
     }
-    if (
-      entryId === "freeform-curve" ||
-      entryId === "loop-connector" ||
-      !entry.geometry
-    ) {
+    if (entryId === "freeform-curve" || !entry.geometry) {
       setActiveRouteId(constructionPathId);
       selectTool("markers");
       setCatalogAction(entryId);
-      setPenPoints([]);
       setNotice(
         entryId === "freeform-curve"
-          ? "Click points on the canvas, then Finish Freeform"
-          : entryId === "loop-connector"
-            ? "Click two free connectors to reconnect"
-            : "Click the active route to place " + entry.label,
+          ? "Select an open End, then an open Start on the active route"
+          : "Click the active route to place " + entry.label,
       );
       return;
     }
@@ -287,55 +282,9 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
       ...(isPit ? { width: pitPath?.widthMeters ?? 6 } : {}),
     });
   }
-  function finishFreeform() {
-    if (penPoints.length < 2) return;
-    const origin = penPoints[0],
-      points = penPoints.map((p, i) => {
-        const previous = penPoints[Math.max(0, i - 1)],
-          next = penPoints[Math.min(penPoints.length - 1, i + 1)];
-        const handle = {
-          x: (next.x - previous.x) / 6,
-          y: (next.y - previous.y) / 6,
-        };
-        return {
-          id: id("control"),
-          position: { x: p.x - origin.x, y: p.y - origin.y, z: 0 },
-          inHandle: { x: -handle.x, y: -handle.y },
-          outHandle: handle,
-        };
-      });
-    const module: TrackModule = {
-      id: id("module"),
-      definitionId: "freeform-curve",
-      transform: { position: { ...origin, z: 0 }, rotation: 0 },
-      parameters: { width: placementParameters.width ?? 10 },
-      controlPoints: points,
-    };
-    const result = prepareModulePlacement(
-      document,
-      module,
-      constructionPathId,
-      0.05,
-    );
-    if (result.status === "invalid") {
-      setNotice(
-        "Freeform overlaps another road; adjust or cancel the pen draft.",
-      );
-      return;
-    }
-    commit(result.document, "Create freeform road");
-    setPenPoints([]);
-    selectTool("select");
-    setSelectedModuleId(module.id);
-  }
   function catalogPoint(point: Vec2) {
     if (catalogAction === "freeform-curve") {
-      setPenPoints((points) => [...points, point]);
-      return;
-    }
-    if (catalogAction === "loop-connector") {
-      const open = getOpenConnectors(document),
-        closest = open.sort(
+      const closest = getOpenConnectors(document, constructionPathId).sort(
           (a, b) =>
             Math.hypot(
               a.connector.position.x - point.x,
@@ -357,67 +306,44 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
         setNotice("Click an open connector");
         return;
       }
-      if (!penPoints.length) {
-        setPenPoints([closest.connector.position]);
+      const ref = { moduleId: closest.module.id, connectorId: closest.connector.id };
+      if (!bridgeSourceEnd) {
+        if (closest.connector.id !== "end") {
+          setNotice("Select an open End connector first");
+          return;
+        }
+        setBridgeSourceEnd(ref);
+        setNotice("Now select an open Start connector. The bridge uses that piece's width.");
         return;
       }
-      const first = open.find(
-        (p) =>
-          Math.hypot(
-            p.connector.position.x - penPoints[0].x,
-            p.connector.position.y - penPoints[0].y,
-          ) < 0.001,
-      );
-      if (
-        !first ||
-        first === closest ||
-        Math.abs(first.connector.width - closest.connector.width) > 0.01
-      ) {
-        setNotice("Choose two distinct equal-width connectors");
+      if (closest.connector.id !== "start" || closest.module.id === bridgeSourceEnd.moduleId) {
+        setNotice("Select an open Start connector on another active-route piece");
         return;
       }
-      const a = first.connector,
-        b = closest.connector,
-        length =
-          Math.hypot(b.position.x - a.position.x, b.position.y - a.position.y) /
-          3;
-      const controls = defaultFreeform();
-      controls[0].outHandle = {
-        x: Math.cos(a.tangent) * length,
-        y: Math.sin(a.tangent) * length,
-      };
-      controls[1].position = {
-        x: b.position.x - a.position.x,
-        y: b.position.y - a.position.y,
-        z: b.position.z - a.position.z,
-      };
-      controls[1].inHandle = {
-        x: Math.cos(b.tangent) * length,
-        y: Math.sin(b.tangent) * length,
-      };
-      const module: TrackModule = {
-        id: id("module"),
-        definitionId: "loop-connector",
-        transform: { position: a.position, rotation: 0 },
-        parameters: { width: a.width },
-        controlPoints: controls,
-      };
-      const result = prepareModulePlacement(
-        document,
-        module,
-        constructionPathId,
-        0.05,
-      );
-      if (result.status === "invalid") {
-        setNotice("Connector geometry overlaps another road");
-        return;
+      try {
+        const next = createConnectorBridge(document, constructionPathId, bridgeSourceEnd, ref);
+        const bridge = next.modules.at(-1)!;
+        if (next.modules.some(
+          (other) =>
+            other.id !== bridge.id &&
+            other.id !== bridgeSourceEnd.moduleId &&
+            other.id !== ref.moduleId &&
+            authoredModulesOverlap(
+              next,
+              effectiveModule(next, bridge),
+              effectiveModule(next, other),
+            ),
+        )) {
+          setNotice("Generated bridge overlaps another road; choose a different pair of route ends.");
+          return;
+        }
+        commit(next, "Connect route ends with Freeform bridge");
+        setBridgeSourceEnd(undefined);
+        selectTool("select");
+        setSelectedModuleId(bridge.id);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Could not create bridge");
       }
-      commit(
-        connectMatchingConnectors(result.document),
-        "Reconnect route with loop connector",
-      );
-      setPenPoints([]);
-      selectTool("select");
       return;
     }
     try {
@@ -479,6 +405,8 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
     void saveQueue.current
       .then(() => {
         onSavedRef.current?.(snapshot);
+        if (documentRef.current.id === snapshot.id) setDirty(false);
+        void listDocuments().then(setTrackList).catch(() => undefined);
         if (manual) setNotice("Saved locally");
       })
       .catch((error) => setNotice("Save failed: " + String(error)));
@@ -508,9 +436,12 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
       .then((saved) => {
         if (active && saved) {
           setDocument(saved);
+          documentRef.current = saved;
           setNotice("Recovered saved track");
         }
+        return listDocuments();
       })
+      .then((tracks) => { if (active && tracks) setTrackList(tracks); })
       .catch((error) => {
         if (active)
           setNotice("Could not recover local track: " + String(error));
@@ -572,6 +503,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
   function updateDraft(next: TrackDocument) {
     documentRef.current = next;
     setDocument(next);
+    setDirty(true);
   }
 
   function commit(next: TrackDocument, label: string) {
@@ -582,12 +514,13 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
     setDocument(after);
     setHistory((items) => [...items, { before, after, label }]);
     setFuture([]);
+    setDirty(true);
     setNotice(label);
   }
 
   function selectTool(nextTool: Tool) {
     setCatalogAction(undefined);
-    setPenPoints([]);
+    setBridgeSourceEnd(undefined);
     cancelTransient();
     setSelectedMarkerId(undefined);
     setSelectedZoneId(undefined);
@@ -1103,16 +1036,25 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
     selectTool("select");
     setGhost(createGhost());
     setTestRunning(false);
-    setSavedTracks(undefined);
+    setDirty(false);
     setNotice(message);
   }
-  async function showSavedTracks() {
+  async function refreshTrackList() {
+    try { setTrackList(await listDocuments()); } catch (error) { setNotice(String(error)); }
+  }
+  function requestTrackSwitch(id: string) {
+    if (id === document.id) { setTrackPickerOpen(false); return; }
+    if (dirty) { setPendingTrackId(id); return; }
+    void openSavedTrack(id);
+  }
+  async function confirmTrackSwitch(save: boolean) {
+    const idValue = pendingTrackId;
+    if (!idValue) return;
     try {
-      await queueSave(documentRef.current);
-      setSavedTracks(await listDocuments());
-    } catch (error) {
-      setNotice(String(error));
-    }
+      if (save) await queueSave(documentRef.current, true);
+      setPendingTrackId(undefined);
+      await openSavedTrack(idValue);
+    } catch (error) { setNotice(String(error)); }
   }
   async function openSavedTrack(id: string) {
     try {
@@ -1196,6 +1138,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
     try {
       await queueSave(documentRef.current);
       openDocument(createEmptyDocument(), "New track");
+      setDirty(true);
     } catch {
       setNotice(
         "Could not save the current track; export it before creating another.",
@@ -1207,6 +1150,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
       const imported = parseDocument(await file.text());
       await queueSave(documentRef.current);
       openDocument(imported, "Imported track");
+      setDirty(true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Import failed");
     }
@@ -1285,7 +1229,28 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
           <button onClick={() => void leaveEditor()}>Back</button>
           <button onClick={newTrack}>New</button>
           <button onClick={() => void queueSave(document, true)}>Save</button>
-          <button onClick={() => void showSavedTracks()}>Open</button>
+          <div className="track-picker">
+            <button
+              aria-expanded={trackPickerOpen}
+              onClick={() => { setTrackPickerOpen((open) => !open); void refreshTrackList(); }}
+            >
+              Tracks
+            </button>
+            {trackPickerOpen && (
+              <section className="track-picker-menu" aria-label="Saved tracks">
+                <strong>Saved tracks</strong>
+                {trackList.length ? trackList.map((track) => (
+                  <button
+                    className={track.id === document.id ? "active" : ""}
+                    key={track.id}
+                    onClick={() => requestTrackSwitch(track.id)}
+                  >
+                    {track.name}{track.id === document.id ? " (editing)" : ""}
+                  </button>
+                )) : <small>No saved tracks yet.</small>}
+              </section>
+            )}
+          </div>
           <button onClick={undo} disabled={!history.length}>
             Undo
           </button>
@@ -1400,20 +1365,16 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               )}
               {catalogAction === "freeform-curve" ? (
                 <>
-                  <p>{penPoints.length} pen points</p>
-                  <button
-                    disabled={penPoints.length < 2}
-                    onClick={finishFreeform}
-                  >
-                    Finish Freeform
-                  </button>
-                  <button onClick={() => setPenPoints((p) => p.slice(0, -1))}>
-                    Remove last point
-                  </button>
+                  <p>
+                    {bridgeSourceEnd
+                      ? "Select an open Start connector on another piece."
+                      : "Select an open End connector on the active route."}
+                  </p>
+                  <p className="muted">The new bridge inherits the selected Start piece&apos;s width. A width mismatch is allowed and reported as a warning.</p>
+                  {bridgeSourceEnd && <button onClick={() => setBridgeSourceEnd(undefined)}>Choose another End</button>}
                 </>
               ) : (
-                catalogAction !== "loop-connector" && (
-                  <>
+                <>
                     <CommitNumber
                       label="Section count"
                       value={catalogSettings.count}
@@ -1471,7 +1432,6 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
                       </select>
                     </label>
                   </>
-                )
               )}
               <button onClick={() => selectTool("select")}>Cancel tool</button>
             </section>
@@ -1947,20 +1907,6 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               ))}
             </section>
           )}
-          {savedTracks && (
-            <section className="tool-options">
-              <strong>Saved tracks</strong>
-              {savedTracks.map((track) => (
-                <button
-                  className="wide-button"
-                  key={track.id}
-                  onClick={() => void openSavedTrack(track.id)}
-                >
-                  {track.name}
-                </button>
-              ))}
-            </section>
-          )}
           {tool === "spectator" && (
             <section className="inspector-content">
               {(["top", "right", "bottom", "left"] as const).map((side) => (
@@ -2089,7 +2035,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
             spectatorVisible={spectatorVisible}
             testDistance={testDistance}
             testPathId={testPathId}
-            penPoints={penPoints}
+            bridgeSourceEnd={bridgeSourceEnd}
             onViewportChange={setViewport}
             onSelectModule={(idValue) => {
               setSelectedModuleId(idValue);
@@ -2390,6 +2336,19 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
           {reportPanel(report, focusIssue)}
         </aside>
       </div>
+      {pendingTrackId && (
+        <div className="track-switch-backdrop" role="dialog" aria-modal="true" aria-label="Unsaved track changes">
+          <section className="track-switch-dialog">
+            <strong>Switch tracks?</strong>
+            <p>You have unsaved changes to {document.metadata.name}.</p>
+            <div>
+              <button onClick={() => setPendingTrackId(undefined)}>Cancel</button>
+              <button onClick={() => void confirmTrackSwitch(false)}>Discard &amp; Switch</button>
+              <button className="accent" onClick={() => void confirmTrackSwitch(true)}>Save &amp; Switch</button>
+            </div>
+          </section>
+        </div>
+      )}
       <footer className="bottom-panel">
         <div>
           <span className="live-indicator" /> LOCAL-FIRST WORKSPACE

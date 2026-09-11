@@ -67,10 +67,14 @@ export async function listDocuments(): Promise<
         .getAll();
       request.onsuccess = () =>
         resolve(
-          request.result.map((value: TrackDocument) => ({
-            id: value.id,
-            name: value.metadata.name,
-          })),
+          request.result
+            .map((value: TrackDocument) => ({
+              id: value.id,
+              name: value.metadata.name,
+              updatedAt: value.metadata.updatedAt,
+            }))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            .map(({ id, name }) => ({ id, name })),
         );
       request.onerror = () => reject(request.error);
     });

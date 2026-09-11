@@ -92,6 +92,7 @@ export function ModulePalette({
           {CATALOG.filter(
             (entry) =>
               entry.category === category &&
+              entry.id !== "loop-connector" &&
               entry.label.toLowerCase().includes(search.toLowerCase()),
           ).map((entry) => (
             <button
