@@ -76,6 +76,7 @@ The competition editor currently supports:
 - Selected vehicle physics values.
 - Team livery palettes and top/lateral sprite previews.
 - JSON category import/export.
+- Competition import uses the same compact header-action styling as the editor's other controls.
 - SVG, PNG, and WebP sprite import/export with size and basic safety validation.
 - Local draft autosave, recovery, validation, and protected official content.
 

@@ -2366,12 +2366,31 @@ select:disabled {
   letter-spacing: .08em;
 }
 
-.competition-editor-actions button {
+.competition-editor-actions button,
+.competition-editor-actions .import-button {
   min-height: 32px;
   padding: 0 10px;
   border-color: rgba(255,255,255,.16);
   background: transparent;
   color: #d5ddd7;
+}
+
+.competition-editor-actions .import-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.competition-editor-actions .import-button:hover,
+.competition-editor-actions .import-button:focus-within {
+  border-color: rgba(255,255,255,.42);
+  color: #fff;
 }
 
 .competition-editor-actions button.primary {
