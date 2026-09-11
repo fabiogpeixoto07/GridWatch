@@ -76,6 +76,16 @@ test("the authored Start/Finish marker defines the physical lap seam", () => {
   assert.ok(Math.hypot(compiled.samples[0].position.x - finish.position.x, compiled.samples[0].position.y - finish.position.y) < 0.001);
 });
 
+test("pole position is held behind the authored Start/Finish marker", () => {
+  const compiled = authoringCompiler.compileAuthoringTrack(authoringDocuments.createSampleDocument());
+  const finish = compiled.sensors.find((sensor) => sensor.kind === "start-finish");
+  const pole = compiled.gridSlots[0];
+  assert.ok(finish);
+  const behindFinish = (pole.position.x - finish.position.x) * compiled.samples[0].tangent.x
+    + (pole.position.y - finish.position.y) * compiled.samples[0].tangent.y;
+  assert.ok(behindFinish < -2);
+});
+
 test("a native authored track drives deterministically in the physical race engine", async () => {
   const compiled = authoringCompiler.compileAuthoringTrack(authoringDocuments.createSampleDocument());
   const trajectory = speedProfiles.buildRacingTrajectory(compiled, vehicles.DEFAULT_FORMULA_VEHICLE_SPEC);

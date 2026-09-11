@@ -2,6 +2,8 @@ import type { SampledPath, SpectatorFrame, TrackDocument, Vec2 } from "./types.j
 import { buildPathGeometry } from "./geometry.js";
 import { boundsFromPoints, normalize, rotate } from "./math.js";
 
+const GRID_START_LINE_CLEARANCE_METERS = 4;
+
 /** Returns the authored-path multiplier needed for the selected map-visible direction. */
 export function travelDirection(document: TrackDocument, path: SampledPath) {
   let twiceArea = 0;
@@ -31,7 +33,7 @@ export function generateGrid(document: TrackDocument, path?: SampledPath) {
     );
     const s =
       start.location.distanceMeters -
-      direction * index * document.grid.longitudinalSpacingMeters +
+      direction * (GRID_START_LINE_CLEARANCE_METERS + index * document.grid.longitudinalSpacingMeters) +
       (override?.distanceOffsetMeters ?? 0);
     const sample = path!.sampleAtDistance(s),
       tangent = { x: normalize(sample.tangent).x * direction, y: normalize(sample.tangent).y * direction };
