@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,4 +35,12 @@ test("connector bridge closes route ends and inherits the selected Start width",
     assert.equal(connectorsCompatible(source, bridgeStart), false);
     assert.equal(connectionCompatible(next, { moduleId: "end-piece", connectorId: "end" }, { moduleId: bridge.id, connectorId: "start" }, source, bridgeStart), true);
   } finally { rmSync(output, { recursive: true, force: true }); }
+});
+
+test("moving a road evaluates every connector for a nearby compatible snap", () => {
+  const source = readFileSync("app/track-creator/domain/track/geometry.ts", "utf8");
+  assert.match(source, /const movingConnectors = connectorId/);
+  assert.match(source, /: localConnectors;/);
+  assert.match(source, /movingConnectors\.flatMap/);
+  assert.match(source, /connectorId: best\.local\.id/);
 });

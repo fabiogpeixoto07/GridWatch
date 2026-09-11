@@ -848,60 +848,67 @@ export function snapModuleToOpenConnector(
   snapDistance: number,
   pathId = modulePathId(document, module.id) ??
     document.paths.find((path) => path.kind === "primary-loop")?.id,
-  connectorId = "start",
+  connectorId?: ConnectorDefinition["id"],
 ): {
   module: TrackModule;
   connection?: { a: ConnectorReference; b: ConnectorReference };
 } {
-  const start = getWorldConnector(module, connectorId);
-  if (!start) return { module };
-  const candidates = getOpenConnectors(document, pathId)
-    .filter(
-      (target) =>
-        target.module.id !== module.id &&
-        target.connector.type === start.type &&
-        Math.abs(target.connector.width - start.width) <= 0.01 &&
-        Math.abs(
-          (target.connector.leftWidth ?? target.connector.width / 2) -
-            (start.rightWidth ?? start.width / 2),
-        ) <= 0.01 &&
-        Math.abs(
-          (target.connector.rightWidth ?? target.connector.width / 2) -
-            (start.leftWidth ?? start.width / 2),
-        ) <= 0.01 &&
-        Math.abs(target.connector.position.z - start.position.z) <=
-          CONNECTION_TOLERANCE &&
-        distance(start.position, target.connector.position) <= snapDistance,
-    )
-    .sort(
-      (a, b) =>
-        distance(start.position, a.connector.position) -
-        distance(start.position, b.connector.position),
-    );
+  const localConnectors = createModuleGeometry(
+    module.definitionId,
+    module.parameters,
+    module.controlPoints,
+  )?.connectors ?? [];
+  // Palette placement intentionally uses one chosen leading connector. Dragging an
+  // existing piece has no leading end, so evaluate every open connector on it.
+  const movingConnectors = connectorId
+    ? localConnectors.filter((connector) => connector.id === connectorId)
+    : localConnectors;
+  const open = getOpenConnectors(document, pathId);
+  const candidates = movingConnectors.flatMap((local) => {
+    const moving = getWorldConnector(module, local.id);
+    if (!moving) return [];
+    return open
+      .filter(
+        (target) =>
+          target.module.id !== module.id &&
+          target.connector.type === moving.type &&
+          Math.abs(target.connector.width - moving.width) <= 0.01 &&
+          Math.abs(
+            (target.connector.leftWidth ?? target.connector.width / 2) -
+              (moving.rightWidth ?? moving.width / 2),
+          ) <= 0.01 &&
+          Math.abs(
+            (target.connector.rightWidth ?? target.connector.width / 2) -
+              (moving.leftWidth ?? moving.width / 2),
+          ) <= 0.01 &&
+          distance(moving.position, target.connector.position) <= snapDistance,
+      )
+      .map((target) => ({ local, moving, target, distance: distance(moving.position, target.connector.position) }));
+  }).sort((a, b) => a.distance - b.distance);
   const best = candidates[0];
   if (!best) return { module };
   const local = createModuleGeometry(
     module.definitionId,
     module.parameters,
     module.controlPoints,
-  )!.connectors.find((c) => c.id === connectorId)!;
-  const rotation = best.connector.tangent + Math.PI - local.tangent;
+  )!.connectors.find((connector) => connector.id === best.local.id)!;
+  const rotation = best.target.connector.tangent + Math.PI - local.tangent;
   const offset = rotate(local.position, rotation);
   return {
     module: {
       ...module,
       transform: {
         position: {
-          x: best.connector.position.x - offset.x,
-          y: best.connector.position.y - offset.y,
-          z: best.connector.position.z - local.position.z,
+          x: best.target.connector.position.x - offset.x,
+          y: best.target.connector.position.y - offset.y,
+          z: best.target.connector.position.z - local.position.z,
         },
         rotation,
       },
     },
     connection: {
-      a: { moduleId: best.module.id, connectorId: best.connector.id },
-      b: { moduleId: module.id, connectorId },
+      a: { moduleId: best.target.module.id, connectorId: best.target.connector.id },
+      b: { moduleId: module.id, connectorId: best.local.id },
     },
   };
 }
