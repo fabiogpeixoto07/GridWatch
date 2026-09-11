@@ -616,9 +616,15 @@ export function CanvasViewport(props: CanvasViewportProps) {
       context.save();
       context.translate(screen.x, screen.y);
       context.rotate(Math.atan2(tip.y - screen.y, tip.x - screen.x));
-      context.strokeStyle = "rgba(255,209,102,.9)";
-      context.lineWidth = 1;
-      context.strokeRect(-1.5 * zoom, -0.65 * zoom, 3 * zoom, 1.3 * zoom);
+      // Traditional three-sided grid box: open toward the direction of travel.
+      context.strokeStyle = "rgba(247,247,242,.98)";
+      context.lineWidth = Math.max(1, zoom * 0.34);
+      context.beginPath();
+      context.moveTo(-1.55 * zoom, -0.8 * zoom);
+      context.lineTo(1.25 * zoom, -0.8 * zoom);
+      context.lineTo(1.25 * zoom, 0.8 * zoom);
+      context.lineTo(-1.55 * zoom, 0.8 * zoom);
+      context.stroke();
       context.restore();
     });
   }

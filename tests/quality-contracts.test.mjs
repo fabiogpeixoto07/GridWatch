@@ -258,7 +258,7 @@ test("championship setup exposes unattended Auto Broadcast playback", async () =
   const copy = await read("app/ui-copy.ts");
   const session = await read("app/domain/championship-session.ts");
   assert.match(page, /championshipPlaybackMode/);
-  assert.match(page, /queueRaceCountdown\(120\)/);
+  assert.match(page, /beginGridDraw\(seed, true\)/);
   assert.match(page, /standingsDurationSeconds \* 1_000/);
   assert.match(page, /visibilitychange/);
   assert.match(page, /championshipSessionRepository\.save/);

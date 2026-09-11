@@ -127,6 +127,7 @@ export const TrackDocumentSchema = z.object({
     longitudinalSpacingMeters: positive,
     lateralSpacingMeters: number.nonnegative(),
     staggerPattern: z.enum(["none", "alternating", "custom"]),
+    racingDirection: z.enum(["clockwise", "counter-clockwise"]).default("clockwise"),
     slots: z.array(
       z.object({
         slot: number.int().min(1),

@@ -61,7 +61,8 @@ The Track Editor is the game’s sole circuit-authoring and racing source. It su
 - Reusable straights, turns, chicanes, route connections, and primary/pit/alternate paths. The Freeform tool is a guided End → Start bridge: select two open connectors on the active route and it draws a tangent-aligned road using the selected Start piece's settings; its intentional joins are permitted while unrelated road collisions remain blocked.
 - Dragging an existing road evaluates every connector on that road for nearby compatible open connectors, so a snap suggestion remains available regardless of which end is moved over a matching connection point. A snap also aligns the piece elevation to its target connector instead of rejecting a valid plan-view connection.
 - The active secondary or pit route can be deleted from the Routes panel. Its markers, zones, pit boxes, route-bound props, and exclusive road pieces are removed, while modules still used by another route remain intact. The primary circuit route is protected.
-- Starting grids, surface and grip zones, terrain, per-module left/right runoff, kerbs, and barriers, props, themes, and spectator framing. Each edge configuration is compiled into the race, including collision walls only where a barrier is defined.
+- Start/Finish direction controls visible clockwise/counter-clockwise travel, the racing line, finish line, grid headings, and physics route. Starting-grid slots use traditional three-sided `]` paint marks rather than placeholder rectangles, and their authored positions are compiled directly into the race.
+- Surface and grip zones, terrain, per-module left/right runoff, kerbs, and barriers, props, themes, and spectator framing. Each edge configuration is compiled into the race, including collision walls only where a barrier is defined.
 - A mapped image overlay can be imported per authored track for circuit-specific visual assets; its placement, scale, rotation, and opacity are preserved in the racing view.
 - In-editor validation, geometry analysis, import/export, autosave, and a topbar browser-local track picker. Switching tracks asks whether to save or discard unsaved work, and inactive saved tracks can be permanently deleted after confirmation.
 - Props and markers are directly selectable on the canvas. Drag either item to move it; its inspector and the Delete key provide removal without returning to its creation tool.
@@ -87,7 +88,7 @@ The competition editor currently supports:
 
 ## Track library
 
-The racing catalog is built exclusively from saved Track Editor documents. The initial Starter Oval is a fully native document; players can create, import, edit, or delete tracks from the Track Editor. Racing modes remain unavailable when no valid saved track exists, and championships require at least two.
+The racing catalog is built exclusively from saved Track Editor documents. The initial Starter Oval is a fully native document; players can create, import, edit, or delete tracks from the Track Editor. Racing modes remain unavailable when no valid saved track exists, and championships require at least two. Cars are not placed when a circuit loads: Start, Restart, Next Race, and Auto Broadcast perform a deterministic, one-car-at-a-time grid draw before the normal countdown.
 
 ## Engine and technology
 

@@ -1,11 +1,12 @@
-export type RaceStatus = "ready" | "countdown" | "racing" | "paused" | "finished";
+export type RaceStatus = "ready" | "grid-draw" | "countdown" | "racing" | "paused" | "finished";
 
 const transitions: Record<RaceStatus, ReadonlySet<RaceStatus>> = {
-  ready: new Set(["ready", "countdown"]),
-  countdown: new Set(["ready", "countdown", "racing"]),
+  ready: new Set(["ready", "grid-draw", "countdown"]),
+  "grid-draw": new Set(["ready", "countdown"]),
+  countdown: new Set(["ready", "grid-draw", "countdown", "racing"]),
   racing: new Set(["ready", "racing", "paused", "finished"]),
   paused: new Set(["ready", "racing", "paused"]),
-  finished: new Set(["ready", "finished"]),
+  finished: new Set(["ready", "grid-draw", "finished"]),
 };
 
 export function canTransitionRace(from: RaceStatus, to: RaceStatus) {

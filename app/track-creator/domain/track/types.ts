@@ -123,6 +123,8 @@ export interface StartingGridDefinition {
   longitudinalSpacingMeters: number;
   lateralSpacingMeters: number;
   staggerPattern: "none" | "alternating" | "custom";
+  /** Travel direction shown by the authored top-down map. */
+  racingDirection: "clockwise" | "counter-clockwise";
   slots: GridSlotOverride[];
 }
 

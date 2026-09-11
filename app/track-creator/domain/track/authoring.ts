@@ -2,6 +2,19 @@ import type { SampledPath, SpectatorFrame, TrackDocument, Vec2 } from "./types.j
 import { buildPathGeometry } from "./geometry.js";
 import { boundsFromPoints, normalize, rotate } from "./math.js";
 
+/** Returns the authored-path multiplier needed for the selected map-visible direction. */
+export function travelDirection(document: TrackDocument, path: SampledPath) {
+  let twiceArea = 0;
+  for (let index = 0; index < path.samples.length; index += 1) {
+    const current = rotate(path.samples[index].position, -document.spectatorFrame.rotation);
+    const next = rotate(path.samples[(index + 1) % path.samples.length].position, -document.spectatorFrame.rotation);
+    twiceArea += current.x * next.y - next.x * current.y;
+  }
+  // World Y is up while the editor canvas is Y-down, so positive area appears clockwise.
+  const authoredVisibleDirection = twiceArea >= 0 ? "clockwise" : "counter-clockwise";
+  return authoredVisibleDirection === (document.grid.racingDirection ?? "clockwise") ? 1 : -1;
+}
+
 export function generateGrid(document: TrackDocument, path?: SampledPath) {
   path ??= buildPathGeometry(document, document.grid.pathId)?.path;
   const start = document.markers.find(
@@ -11,16 +24,17 @@ export function generateGrid(document: TrackDocument, path?: SampledPath) {
       marker.location.pathId === document.grid.pathId,
   );
   if (!path || !start) return [];
+  const direction = travelDirection(document, path);
   return Array.from({ length: document.grid.slotCount }, (_, index) => {
     const override = document.grid.slots.find(
       (slot) => slot.slot === index + 1,
     );
     const s =
       start.location.distanceMeters -
-      index * document.grid.longitudinalSpacingMeters +
+      direction * index * document.grid.longitudinalSpacingMeters +
       (override?.distanceOffsetMeters ?? 0);
     const sample = path!.sampleAtDistance(s),
-      tangent = normalize(sample.tangent);
+      tangent = { x: normalize(sample.tangent).x * direction, y: normalize(sample.tangent).y * direction };
     const lateral =
       override?.lateralOffsetMeters ??
       (document.grid.staggerPattern === "alternating"

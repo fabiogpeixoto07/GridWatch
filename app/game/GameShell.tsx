@@ -282,8 +282,7 @@ function worldToCanvas(position: { x: number; y: number }, geometry: Geometry) {
 
 function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS, mechanicalFailureChancePercent = 12): CarState[] {
   const selected = drivers.slice(0, gridSize)
-    .map((driver) => ({ driver, seedKey: stableSeedKey(driver.id), sort: seeded(seed * 19 + stableSeedKey(driver.id) * 137) }))
-    .sort((a, b) => a.sort - b.sort);
+    .map((driver) => ({ driver, seedKey: stableSeedKey(driver.id) }));
 
   return selected.map(({ driver, seedKey }, index) => {
     const attributeSeed = seed * 1009 + seedKey * 313;
@@ -788,20 +787,18 @@ function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, tr
 
   const start = compiled.sensors.find((sensor) => sensor.kind === "start-finish");
   if (start) {
-    const point = project(start.position);
-    const tangent = project({ x: start.position.x + start.normal.y, y: start.position.y - start.normal.x });
-    const angle = Math.atan2(tangent.y - point.y, tangent.x - point.x);
-    const width = Math.max(12, (compiled.samples.reduce((total, sample) => total + sample.widthLeft + sample.widthRight, 0) / compiled.samples.length) * (geometry.camera?.scale ?? 1));
-    const cells = 10;
-    for (let index = 0; index < cells; index += 1) {
-      const offset = (index / cells - 0.5) * width;
-      ctx.strokeStyle = index % 2 === 0 ? "#f3f4ef" : "#101516";
-      ctx.lineWidth = width / cells + .8;
-      ctx.beginPath();
-      ctx.moveTo(point.x + Math.cos(angle) * offset - Math.sin(angle) * 2.5, point.y + Math.sin(angle) * offset + Math.cos(angle) * 2.5);
-      ctx.lineTo(point.x + Math.cos(angle) * offset + Math.sin(angle) * 2.5, point.y + Math.sin(angle) * offset - Math.cos(angle) * 2.5);
-      ctx.stroke();
-    }
+    const source = compiled.samples.reduce((nearest, sample) =>
+      (sample.position.x - start.position.x) ** 2 + (sample.position.y - start.position.y) ** 2 <
+      (nearest.position.x - start.position.x) ** 2 + (nearest.position.y - start.position.y) ** 2 ? sample : nearest, compiled.samples[0]);
+    const normal = { x: -source.tangent.y, y: source.tangent.x };
+    const left = project({ x: source.position.x + normal.x * source.widthLeft, y: source.position.y + normal.y * source.widthLeft });
+    const right = project({ x: source.position.x - normal.x * source.widthRight, y: source.position.y - normal.y * source.widthRight });
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(left.x, left.y);
+    ctx.lineTo(right.x, right.y);
+    ctx.stroke();
   }
 }
 
@@ -825,7 +822,7 @@ export function GameShell() {
   const lastFrameRef = useRef(0);
   const simulationAccumulatorRef = useRef(0);
   const geometryRef = useRef<Geometry | null>(null);
-  const carsRef = useRef<CarState[]>(initialCars(12, 1, 6));
+  const carsRef = useRef<CarState[]>([]);
   const currentTrackRef = useRef<RaceTrack | null>(null);
   const modeRef = useRef<GameMode | null>(null);
   const raceTimeRef = useRef(0);
@@ -844,6 +841,7 @@ export function GameShell() {
   const raceResultRef = useRef<RaceResultSnapshot | null>(null);
   const winnerPresentationTimerRef = useRef<number | null>(null);
   const raceStartTimerRef = useRef<number | null>(null);
+  const gridDrawTimerRef = useRef<number | null>(null);
   const raceActionsRef = useRef<HTMLDivElement>(null);
   const raceActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const worldRaceEngineRef = useRef<WorldRaceEngine | null>(null);
@@ -870,7 +868,9 @@ export function GameShell() {
   const [raceResult, setRaceResult] = useState<RaceResultSnapshot | null>(null);
   const [showRaceResults, setShowRaceResults] = useState(false);
   const [status, setStatus] = useState<RaceStatus>("ready");
-  const [cars, setCars] = useState<CarState[]>(() => initialCars(12, 1, 6));
+  const [cars, setCars] = useState<CarState[]>([]);
+  const [gridReveal, setGridReveal] = useState<Driver[]>([]);
+  const [gridDrawClosing, setGridDrawClosing] = useState(false);
   const [raceTime, setRaceTime] = useState(0);
   const [countdown, setCountdown] = useState(3);
   const [simSpeed, setSimSpeed] = useState(1);
@@ -1125,7 +1125,13 @@ export function GameShell() {
   const resetRace = useCallback((newSeed?: number) => {
     const seed = newSeed ?? sessionSeedRef.current;
     sessionSeedRef.current = seed;
-    carsRef.current = initialCars(selectedGridSize, seed, totalLaps, activeDrivers, activeCategory.mechanicalFailureChancePercent);
+    worldRaceEngineGenerationRef.current += 1;
+    worldRaceEngineRef.current?.free();
+    worldRaceEngineRef.current = null;
+    worldRaceEnginePromiseRef.current = null;
+    carsRef.current = [];
+    setGridReveal([]);
+    setGridDrawClosing(false);
     raceTimeRef.current = 0;
     simulationAccumulatorRef.current = 0;
     countdownRef.current = 3;
@@ -1142,15 +1148,60 @@ export function GameShell() {
       window.clearTimeout(raceStartTimerRef.current);
       raceStartTimerRef.current = null;
     }
+    if (gridDrawTimerRef.current !== null) {
+      window.clearTimeout(gridDrawTimerRef.current);
+      gridDrawTimerRef.current = null;
+    }
     setShowRoundStandings(false);
     setRaceResult(null);
     setShowRaceResults(false);
-    setCars([...carsRef.current]);
+    setCars([]);
     setRaceTime(0);
     setCountdown(3);
     setRaceStatus("ready");
-    if (modeRef.current) initializeWorldRaceEngine(carsRef.current);
-  }, [activeCategory.mechanicalFailureChancePercent, activeDrivers, initializeWorldRaceEngine, selectedGridSize, totalLaps, setRaceStatus]);
+  }, [setRaceStatus]);
+
+  const beginGridDraw = useCallback((seed: number, autoStart = false) => {
+    if (gridDrawTimerRef.current !== null) window.clearTimeout(gridDrawTimerRef.current);
+    const ranked = activeDrivers.slice(0, selectedGridSize)
+      .map((driver) => ({ driver, order: seeded(seed * 19 + stableSeedKey(driver.id) * 137) }))
+      .sort((left, right) => left.order - right.order)
+      .map(({ driver }) => driver);
+    setGridReveal([]);
+    setGridDrawClosing(false);
+    setRaceStatus("grid-draw");
+    let revealCount = 0;
+    const reveal = () => {
+      revealCount += 1;
+      setGridReveal(ranked.slice(0, revealCount));
+      if (revealCount < ranked.length) {
+        gridDrawTimerRef.current = window.setTimeout(reveal, 600);
+        return;
+      }
+      gridDrawTimerRef.current = window.setTimeout(() => {
+        setGridDrawClosing(true);
+        gridDrawTimerRef.current = window.setTimeout(() => {
+          const preparedCars = initialCars(selectedGridSize, seed, totalLaps, ranked, activeCategory.mechanicalFailureChancePercent);
+          carsRef.current = preparedCars;
+          setCars([...preparedCars]);
+          initializeWorldRaceEngine(preparedCars);
+          setGridReveal([]);
+          setGridDrawClosing(false);
+          setRaceStatus("ready");
+          if (autoStart) {
+            initAudio();
+            void worldRaceEnginePromiseRef.current?.then(() => {
+              if (statusRef.current !== "ready") return;
+              countdownRef.current = 3;
+              setCountdown(3);
+              setRaceStatus("countdown");
+            });
+          }
+        }, 300);
+      }, 450);
+    };
+    gridDrawTimerRef.current = window.setTimeout(reveal, 600);
+  }, [activeCategory.mechanicalFailureChancePercent, activeDrivers, initializeWorldRaceEngine, selectedGridSize, setRaceStatus, totalLaps]);
 
   const rollRaceSeed = useCallback(() => {
     raceSeedSequenceRef.current += 1;
@@ -1166,6 +1217,7 @@ export function GameShell() {
 
   const queueRaceCountdown = useCallback((delayMs = 0) => {
     if (raceStartTimerRef.current !== null) window.clearTimeout(raceStartTimerRef.current);
+    if (gridDrawTimerRef.current !== null) window.clearTimeout(gridDrawTimerRef.current);
     initAudio();
     const generation = worldRaceEngineGenerationRef.current;
     const begin = async () => {
@@ -1220,8 +1272,8 @@ export function GameShell() {
     loadTrack(schedule[0]);
     resetRace(seed);
     setScreen("race");
-    if (championshipPlaybackMode === "auto") queueRaceCountdown(120);
-  }, [autoplayDirector, catalog, championshipLength, championshipPlaybackMode, hasCategories, loadTrack, queueRaceCountdown, resetRace, rollRaceSeed, selectedCategoryId]);
+    if (championshipPlaybackMode === "auto") beginGridDraw(seed, true);
+  }, [autoplayDirector, beginGridDraw, catalog, championshipLength, championshipPlaybackMode, hasCategories, loadTrack, resetRace, rollRaceSeed, selectedCategoryId]);
 
   const discardSavedChampionship = useCallback(() => {
     championshipSessionRepository.reset();
@@ -1263,18 +1315,20 @@ export function GameShell() {
     loadTrack(schedule[session.completedRounds]);
     resetRace(session.seed + session.completedRounds * 7_919);
     setScreen("race");
-    if (session.playback.mode === "auto") queueRaceCountdown(120);
-  }, [autoplayDirector, catalog, categories, discardSavedChampionship, loadTrack, queueRaceCountdown, resetRace, savedChampionshipSession]);
+    if (session.playback.mode === "auto") beginGridDraw(session.seed + session.completedRounds * 7_919, true);
+  }, [autoplayDirector, beginGridDraw, catalog, categories, discardSavedChampionship, loadTrack, resetRace, savedChampionshipSession]);
 
   const startRace = useCallback(() => {
-    resetRace(rollRaceSeed());
-    queueRaceCountdown();
-  }, [queueRaceCountdown, resetRace, rollRaceSeed]);
+    const seed = rollRaceSeed();
+    resetRace(seed);
+    beginGridDraw(seed, true);
+  }, [beginGridDraw, resetRace, rollRaceSeed]);
 
   const restartRace = useCallback(() => {
-    resetRace(rollRaceSeed());
-    if (gameMode === "championship" && championshipPlaybackMode === "auto") queueRaceCountdown(120);
-  }, [championshipPlaybackMode, gameMode, queueRaceCountdown, resetRace, rollRaceSeed]);
+    const seed = rollRaceSeed();
+    resetRace(seed);
+    beginGridDraw(seed, true);
+  }, [beginGridDraw, resetRace, rollRaceSeed]);
 
   const nextRace = useCallback(() => {
     const seed = rollRaceSeed();
@@ -1290,7 +1344,7 @@ export function GameShell() {
       loadTrack(randomTrackIndex(seed, currentTrackIndex, catalog));
     }
     resetRace(seed);
-    queueRaceCountdown(120);
+    beginGridDraw(seed, true);
   }, [
     championshipRound,
     championshipSchedule,
@@ -1298,7 +1352,7 @@ export function GameShell() {
     currentTrackIndex,
     gameMode,
     loadTrack,
-    queueRaceCountdown,
+    beginGridDraw,
     resetRace,
     rollRaceSeed,
   ]);
@@ -1704,6 +1758,15 @@ export function GameShell() {
     if (!track) return;
     drawAuthoredTrack(ctx, geometry, track);
 
+    if (statusRef.current === "grid-draw" && geometry.compiled) {
+      gridReveal.forEach((driver, index) => {
+        const slot = geometry.compiled!.gridSlots[index];
+        if (!slot) return;
+        const point = worldToCanvas(slot.position, geometry);
+        drawCar(ctx, driver, point.x, point.y, slot.heading, clamp(geometry.width / 1000, .68, 1.12) * CAR_SCALE_FACTOR, false, "running", raceTimeRef.current, null);
+      });
+    }
+
     const sorted = [...carsRef.current].sort(compareRaceOrder);
     const leaderId = sorted[0]?.id;
     for (let index = sorted.length - 1; index >= 0; index--) {
@@ -1792,7 +1855,7 @@ export function GameShell() {
       ctx.fillRect(geometry.width * 0.43, geometry.height * 0.545, geometry.width * 0.14, 3);
       ctx.restore();
     }
-  }, [driverById, showDrivingDebug]);
+  }, [driverById, gridReveal, showDrivingDebug]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1953,6 +2016,16 @@ export function GameShell() {
         </div>
         <RaceActionsMenu containerRef={raceActionsRef} triggerRef={raceActionsTriggerRef} open={raceActionsOpen} status={status} championship={gameMode === "championship"} autoBroadcast={championshipPlaybackMode === "auto"} autoplayPaused={autoplayPaused} finalRound={isFinalChampionshipRound} laps={totalLaps} grid={selectedGridSize} maxGrid={maxGridSize} speed={simSpeed} soundOn={soundOn} onOpenChange={setRaceActionsOpen} onStart={startRace} onPause={togglePause} onRestart={restartRace} onNext={nextRace} onToggleAutoplay={toggleAutoplayPause} onLaps={setTotalLaps} onGrid={setGridSize} onSpeed={setSimSpeed} onSound={toggleSound} onMenu={returnToMenu} />
       </header>
+      {status === "grid-draw" && (
+        <div className={`grid-draw-overlay${gridDrawClosing ? " closing" : ""}`} role="status" aria-live="polite">
+          <section>
+            <span>GRID DRAW</span>
+            <h2>Assigning the starting order</h2>
+            <p>{gridReveal.length} / {selectedGridSize} positions confirmed</p>
+            <ol>{gridReveal.map((driver, index) => <li key={driver.id}><b>{String(index + 1).padStart(2, "0")}</b><i style={{ background: driver.color }} /><strong>{driver.name}</strong><small>{driver.team}</small></li>)}</ol>
+          </section>
+        </div>
+      )}
 
       <section className="race-layout">
         <RaceHud canvasRef={canvasRef} trackName={currentTrack?.name ?? "Track Editor circuit"} physicalCarCount={cars.filter((car) => car.worldX !== null && car.worldY !== null).length} currentLap={currentLap} totalLaps={totalLaps} raceTime={formatTime(raceTime)} leaderCode={leader ? driverById.get(leader.id)?.code ?? "—" : "—"} leaderColor={leader ? driverById.get(leader.id)?.color ?? "#fff" : "#fff"} bestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : "—"} countdown={status === "countdown" ? countdown : null} overlay={<BroadcastPanel currentLap={currentLap} totalLaps={totalLaps} fastestDriver={bestLapEntry ? driverById.get(bestLapEntry.id)?.code : undefined} fastestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : undefined} entries={standings.map((car, index) => ({ id: car.id, code: driverById.get(car.id)?.code ?? car.id, status: car.mechanical, gapSeconds: index === 0 ? 0 : Math.max(0, (leader ? leader.distance - car.distance : 0) * 22.8) }))} />} />

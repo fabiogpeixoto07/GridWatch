@@ -1,4 +1,4 @@
-import { generateGrid } from "../track-creator/domain/track/authoring.js";
+import { generateGrid, travelDirection } from "../track-creator/domain/track/authoring.js";
 import { buildTrackGeometry } from "../track-creator/domain/track/geometry.js";
 import type { PathSample, TrackDocument } from "../track-creator/domain/track/types.js";
 import type { CompiledTrack, CompiledTrackSample, Vector2 } from "./compiled-track.js";
@@ -80,11 +80,17 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
   const primaryPathId = document.paths.find((path) => path.kind === "primary-loop")?.id;
   const source = geometry.path.samples;
   // A closed authoring path includes its terminal seam sample. The physical contract is cyclic and must not repeat it.
-  const raw = (source.length > 8 ? source.slice(0, -1) : source).filter((sample, index, values) => {
+  let raw = (source.length > 8 ? source.slice(0, -1) : source).filter((sample, index, values) => {
     if (index === 0) return true;
     const previous = values[index - 1].position;
     return Math.hypot(sample.position.x - previous.x, sample.position.y - previous.y) > 0.001;
   });
+  if (travelDirection(document, geometry.path) < 0) {
+    raw = [...raw].reverse().map((sample) => ({
+      ...sample,
+      tangent: { x: -sample.tangent.x, y: -sample.tangent.y, z: -sample.tangent.z },
+    }));
+  }
   const spacing = lengthMeters / raw.length;
   const samples: CompiledTrackSample[] = raw.map((sample, index) => {
     const tangent = normalize({ x: sample.tangent.x, y: sample.tangent.y });
@@ -94,8 +100,8 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
     const material = materialFor(document, sample, lengthMeters, primaryPathId);
     const position = { x: sample.position.x, y: sample.position.y };
     return {
-      progress: sample.s / lengthMeters,
-      distance: sample.s,
+      progress: index / raw.length,
+      distance: index * spacing,
       position,
       tangent,
       normal,
@@ -125,10 +131,8 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
       sampleIndex,
     };
   });
-  const sampleAtDistance = (distance: number) => {
-    const wrapped = ((distance % lengthMeters) + lengthMeters) % lengthMeters;
-    return samples.reduce((nearest, candidate) => Math.abs(candidate.distance - wrapped) < Math.abs(nearest.distance - wrapped) ? candidate : nearest, samples[0]);
-  };
+  const sampleAtPosition = (position: Vector2) => samples.reduce((nearest, candidate) =>
+    distanceSquared(candidate.position, position) < distanceSquared(nearest.position, position) ? candidate : nearest, samples[0]);
   const sensors: CompiledTrack["sensors"] = [];
   for (const marker of document.markers) {
     if (marker.location.pathId !== document.grid.pathId) continue;
@@ -136,7 +140,8 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
       ? marker.type
       : null;
     if (!kind) continue;
-    const sample = sampleAtDistance(marker.location.distanceMeters);
+    const sourceSample = geometry.path.sampleAtDistance(marker.location.distanceMeters);
+    const sample = sampleAtPosition(sourceSample.position);
     sensors.push({ id: marker.id, kind, position: sample.position, normal: sample.normal });
   }
   if (!sensors.some((sensor) => sensor.kind === "start-finish")) {

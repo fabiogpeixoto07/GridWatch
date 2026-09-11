@@ -123,6 +123,7 @@ export const UI_COPY = {
     physicsFallback: "PHYSICS FALLBACK",
     status: {
       ready: "READY",
+      "grid-draw": "GRID DRAW",
       countdown: "STARTING",
       racing: "LIVE",
       paused: "PAUSED",

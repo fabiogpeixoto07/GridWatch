@@ -55,6 +55,18 @@ test("Track Editor documents compile their closed primary route, grid, surfaces,
   assert.ok(compiled.colliders.some((collider) => collider.side === "right"));
 });
 
+test("Start/Finish direction reverses the compiled travel, grid heading, and racing progression", () => {
+  const clockwise = authoringDocuments.createSampleDocument();
+  clockwise.grid.racingDirection = "clockwise";
+  const counterClockwise = structuredClone(clockwise);
+  counterClockwise.grid.racingDirection = "counter-clockwise";
+  const forward = authoringCompiler.compileAuthoringTrack(clockwise);
+  const reverse = authoringCompiler.compileAuthoringTrack(counterClockwise);
+  assert.ok(forward.samples[0].tangent.x * reverse.samples[0].tangent.x + forward.samples[0].tangent.y * reverse.samples[0].tangent.y < -0.9);
+  assert.ok(forward.gridSlots[0].heading !== reverse.gridSlots[0].heading);
+  assert.ok(forward.sensors.some((sensor) => sensor.kind === "start-finish"));
+});
+
 test("a native authored track drives deterministically in the physical race engine", async () => {
   const compiled = authoringCompiler.compileAuthoringTrack(authoringDocuments.createSampleDocument());
   const trajectory = speedProfiles.buildRacingTrajectory(compiled, vehicles.DEFAULT_FORMULA_VEHICLE_SPEC);

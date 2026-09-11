@@ -2378,6 +2378,22 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
                   }}
                 />
               </label>
+              {selectedMarker.type === "start-finish" && (
+                <label>
+                  Racing direction
+                  <select
+                    value={document.grid.racingDirection}
+                    onChange={(event) => {
+                      const next = cloneDocument(document);
+                      next.grid.racingDirection = event.target.value as "clockwise" | "counter-clockwise";
+                      commit(next, "Set racing direction");
+                    }}
+                  >
+                    <option value="clockwise">Clockwise</option>
+                    <option value="counter-clockwise">Counter-clockwise</option>
+                  </select>
+                </label>
+              )}
               <button className="wide-button" onClick={deleteSelected}>
                 Delete marker
               </button>

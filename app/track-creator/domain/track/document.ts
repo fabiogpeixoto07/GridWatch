@@ -44,6 +44,7 @@ export function createEmptyDocument(): TrackDocument {
       longitudinalSpacingMeters: 8,
       lateralSpacingMeters: 3.5,
       staggerPattern: "alternating",
+      racingDirection: "clockwise",
       slots: [],
     },
     spectatorFrame: {
@@ -226,6 +227,7 @@ export function hydrateDocument(document: TrackDocument): TrackDocument {
     zones: document.zones ?? [],
     props: document.props ?? [],
     environment,
+    grid: { ...document.grid, racingDirection: document.grid?.racingDirection ?? "clockwise" },
     modules: (document.modules ?? []).map((module) => ({
       ...module,
       properties: {

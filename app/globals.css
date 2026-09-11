@@ -4096,3 +4096,16 @@ input:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+.grid-draw-overlay { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: rgba(3, 10, 12, .72); animation: grid-draw-fade .3s ease both; }
+.grid-draw-overlay.closing { animation: grid-draw-close .3s ease both; pointer-events: none; }
+ .grid-draw-overlay section { width: min(440px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 32px)); overflow: auto; padding: 28px; border: 1px solid rgba(215, 238, 220, .32); border-radius: 14px; background: #101a19; box-shadow: 0 24px 80px rgba(0,0,0,.46); color: #edf4eb; }
+ .grid-draw-overlay span { color: #b2d98b; font: 800 11px/1 Arial; letter-spacing: .16em; }
+ .grid-draw-overlay h2 { margin: 8px 0 4px; font-size: 26px; }
+ .grid-draw-overlay p { margin: 0 0 18px; color: #9eaaa3; }
+ .grid-draw-overlay ol { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+ .grid-draw-overlay li { display: grid; grid-template-columns: 30px 10px 1fr auto; align-items: center; gap: 9px; min-height: 38px; padding: 0 10px; border-radius: 7px; background: rgba(255,255,255,.055); animation: grid-slot-reveal .28s ease both; }
+ .grid-draw-overlay li i { width: 9px; height: 9px; border-radius: 50%; }
+ .grid-draw-overlay li small { color: #9eaaa3; }
+ @keyframes grid-slot-reveal { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+ @keyframes grid-draw-fade { from { opacity: 0; } to { opacity: 1; } }
+ @keyframes grid-draw-close { from { opacity: 1; } to { opacity: 0; } }
