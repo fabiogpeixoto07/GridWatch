@@ -263,6 +263,13 @@ function stableSeedKey(id: string | number) {
   return hash >>> 0;
 }
 
+function freshRaceSeed(sequence: number) {
+  const values = new Uint32Array(1);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(values);
+  else values[0] = Math.floor(Math.random() * 0x1_0000_0000);
+  return (values[0] ^ Math.imul(sequence + 1, 7_919)) >>> 0;
+}
+
 function applyPhysicalGridPositions(cars: CarState[], engine: WorldRaceEngine) {
   const snapshots = new Map(engine.snapshot().map((snapshot) => [snapshot.id, snapshot]));
   for (const car of cars) {
@@ -1199,16 +1206,16 @@ export function GameShell() {
         setGridDrawClosing(true);
         gridDrawTimerRef.current = window.setTimeout(() => {
           const preparedCars = initialCars(selectedGridSize, seed, totalLaps, ranked, activeCategory.mechanicalFailureChancePercent);
-          carsRef.current = preparedCars;
-          setCars([...preparedCars]);
           const enginePromise = initializeWorldRaceEngine(preparedCars);
-          setGridReveal([]);
-          setGridDrawClosing(false);
-          setRaceStatus("ready");
+          const engineGeneration = worldRaceEngineGenerationRef.current;
           void enginePromise?.then((engine) => {
-            if (!engine || carsRef.current !== preparedCars) return;
-            applyPhysicalGridPositions(preparedCars, engine);
+            if (engineGeneration !== worldRaceEngineGenerationRef.current) return;
+            if (engine) applyPhysicalGridPositions(preparedCars, engine);
+            carsRef.current = preparedCars;
             setCars([...preparedCars]);
+            setGridReveal([]);
+            setGridDrawClosing(false);
+            setRaceStatus("ready");
             if (autoStart) {
               initAudio();
               if (statusRef.current !== "ready") return;
@@ -1225,7 +1232,7 @@ export function GameShell() {
 
   const rollRaceSeed = useCallback(() => {
     raceSeedSequenceRef.current += 1;
-    return 17 + raceSeedSequenceRef.current * 7919;
+    return freshRaceSeed(raceSeedSequenceRef.current);
   }, []);
 
   const loadTrack = useCallback((trackIndex: number) => {

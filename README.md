@@ -88,7 +88,7 @@ The competition editor currently supports:
 
 ## Track library
 
-The racing catalog is built exclusively from saved Track Editor documents. The initial Starter Oval is a fully native document; players can create, import, edit, or delete tracks from the Track Editor. Racing modes remain unavailable when no valid saved track exists, and championships require at least two. Cars are not placed when a circuit loads: Start, Restart, Next Race, and Auto Broadcast perform a deterministic, one-car-at-a-time grid draw before the normal countdown. The traffic-light countdown renders those same physical grid-slot coordinates and headings, so the cars do not jump to a second start formation before the lights go out.
+The racing catalog is built exclusively from saved Track Editor documents. The initial Starter Oval is a fully native document; players can create, import, edit, or delete tracks from the Track Editor. Racing modes remain unavailable when no valid saved track exists, and championships require at least two. Cars are not placed when a circuit loads: Start, Restart, Next Race, and Auto Broadcast use a fresh random seed to perform a one-car-at-a-time grid draw before the normal countdown. The traffic-light countdown waits for and renders those same physical grid-slot coordinates and headings, so the cars do not flash in a second start formation before the lights go out.
 
 ## Engine and technology
 
