@@ -277,6 +277,7 @@ export function RoutePanel({
   select,
   selectModule,
   change,
+  deleteActiveRoute,
 }: {
   document: TrackDocument;
   active: string;
@@ -284,6 +285,7 @@ export function RoutePanel({
   select: (id: string) => void;
   selectModule: (id?: string) => void;
   change: (d: TrackDocument, label: string) => void;
+  deleteActiveRoute: () => void;
 }) {
   const path = document.paths.find((p) => p.id === active),
     [role, setRole] = useState("secondary"),
@@ -331,6 +333,14 @@ export function RoutePanel({
             ))}
         </select>
       </label>
+      <button
+        className="wide-button danger-text"
+        disabled={!path || path.kind === "primary-loop"}
+        title={path?.kind === "primary-loop" ? "The primary circuit route cannot be deleted." : "Delete the active route and its exclusive road pieces."}
+        onClick={deleteActiveRoute}
+      >
+        Delete active route
+      </button>
       <label>
         Road module
         <select

@@ -1063,6 +1063,58 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
   async function refreshTrackList() {
     try { setTrackList(await listDocuments()); } catch (error) { setNotice(String(error)); }
   }
+
+  function deleteActiveRoute() {
+    const routeId = constructionPathId;
+    const route = document.paths.find((path) => path.id === routeId);
+    if (!route) return;
+    if (route.kind === "primary-loop") {
+      setNotice("The primary circuit route cannot be deleted.");
+      return;
+    }
+    if (!window.confirm(`Delete the active route “${routeId}” and its exclusive road pieces? Shared pieces will remain.`)) return;
+    const next = cloneDocument(document);
+    const target = next.paths.find((path) => path.id === routeId)!;
+    const routeModuleIds = new Set([
+      ...target.sourceModuleIds,
+      ...(target.traversals ?? []).map((step) => step.moduleId),
+    ]);
+    const routeMarkerIds = new Set(
+      [target.entryMarkerId, target.exitMarkerId].filter((markerId): markerId is string => Boolean(markerId)),
+    );
+    next.paths = next.paths.filter((path) => path.id !== routeId);
+    const survivingModuleIds = new Set(
+      next.paths.flatMap((path) => [
+        ...path.sourceModuleIds,
+        ...(path.traversals ?? []).map((step) => step.moduleId),
+      ]),
+    );
+    const removedModuleIds = new Set(
+      [...routeModuleIds].filter((moduleId) => !survivingModuleIds.has(moduleId)),
+    );
+    next.modules = next.modules.filter((module) => !removedModuleIds.has(module.id));
+    next.connections = next.connections.filter(
+      (connection) =>
+        !removedModuleIds.has(connection.a.moduleId) &&
+        !removedModuleIds.has(connection.b.moduleId),
+    );
+    next.overrides = next.overrides.filter((override) => !removedModuleIds.has(override.targetId));
+    next.markers = next.markers.filter(
+      (marker) => marker.location.pathId !== routeId && !routeMarkerIds.has(marker.id),
+    );
+    next.zones = next.zones.filter((zone) => zone.pathId !== routeId);
+    next.pitBoxes = next.pitBoxes.filter((box) => box.pathId !== routeId);
+    next.props = next.props.filter((prop) => String(prop.properties.pathId ?? "") !== routeId);
+    commit(next, `Delete route ${routeId}`);
+    setActiveRouteId(primaryId);
+    setSelectedModuleId(undefined);
+    setSelectedPathPointId(undefined);
+    setSelectedMarkerId(undefined);
+    setSelectedZoneId(undefined);
+    setSelectedPropId(undefined);
+    setBridgeSourceEnd(undefined);
+    selectTool("select");
+  }
   function requestTrackSwitch(id: string) {
     if (id === document.id) { setTrackPickerOpen(false); return; }
     if (dirty) { setPendingTrackId(id); return; }
@@ -1410,6 +1462,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
                 );
             }}
             change={commit}
+            deleteActiveRoute={deleteActiveRoute}
           />
           <ModulePalette
             disabled={tool === "pit" && legacyPit}

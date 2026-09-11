@@ -116,3 +116,14 @@ test("Track Editor offers route-module selection independently of canvas hit tes
   assert.match(source, /selectModule\(event\.target\.value \|\| undefined\)/);
   assert.match(source, /const selectableModules = routeModules\.length \? routeModules : document\.modules/);
 });
+
+test("Track Editor protects the primary route while deleting active route data and exclusive pieces", async () => {
+  const app = await readFile(new URL("../app/track-creator/App.tsx", import.meta.url), "utf8");
+  const panel = await readFile(new URL("../app/track-creator/editor/LibraryPanels.tsx", import.meta.url), "utf8");
+  assert.match(app, /function deleteActiveRoute\(\)/);
+  assert.match(app, /route\.kind === "primary-loop"/);
+  assert.match(app, /next\.zones = next\.zones\.filter/);
+  assert.match(app, /const removedModuleIds = new Set/);
+  assert.match(panel, /Delete active route/);
+  assert.match(panel, /disabled=\{!path \|\| path\.kind === "primary-loop"\}/);
+});
