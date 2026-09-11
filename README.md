@@ -24,10 +24,9 @@ The artificial intelligence is a deterministic rules-and-state-machine system. I
 ### Event configuration
 
 - 50 shipped circuits.
-- Selectable official or custom competition categories.
-- 3, 6, 9, or 12 race laps.
-- Configurable grid size based on the selected category.
-- A shipped 22-driver fictional **Mini Formula** category.
+- Selectable competition categories, with category defaults for 3, 6, 9, or 12 laps and grid size; event setup can still override both values.
+- Racing is unavailable when the local competition library has no categories.
+- A shipped 22-driver fictional **Mini Formula** category that can also be removed locally.
 - 1×, 2×, and 4× simulation speeds.
 
 ### Racing simulation
@@ -38,7 +37,7 @@ The artificial intelligence is a deterministic rules-and-state-machine system. I
 - Arc-length track compilation shared by physical placement, AI targets, boundaries, and grid slots.
 - Racing-line calculation, corner-speed planning, braking, steering, and recovery.
 - Following, closing, attacking, side-by-side racing, and overtaking behavior.
-- Per-race performance variation, driver mistakes, line errors, mechanical issues, and retirements.
+- Per-race performance variation, driver mistakes, line errors, mechanical issues, and retirements; the mechanical-failure chance is configured per category.
 - A simpler deterministic driving model used as a fallback when the physical engine cannot initialize.
 
 ### Spectator and broadcast presentation
@@ -74,11 +73,13 @@ The competition editor currently supports:
 - Driver identity, number, team, helmet color, and grid ordering.
 - Skill, aggression, consistency, cornering, overtaking, defense, and risk attributes.
 - Selected vehicle physics values.
-- Team livery palettes and top/lateral sprite previews.
-- JSON category import/export.
+- Team livery palettes and true top/side previews using the same alpha-mask rendering as the race.
+- Optional per-driver top and side sprites. A driver-specific sprite is rendered unchanged and bypasses every category palette/alpha channel; an omitted view falls back independently to the category sprite.
+- Portable JSON category import/export, including embedded driver sprite data, with a 32 MB competition-file limit.
 - Competition import uses the same compact header-action styling as the editor's other controls.
 - SVG, PNG, and WebP sprite import/export with size and basic safety validation.
-- Local draft autosave, recovery, validation, and protected official content.
+- IndexedDB-backed category library and local draft autosave/recovery, validation, and protected official content editing.
+- Category racing-default controls use the same light editor-field styling as the rest of the Competition Editor.
 
 ## Circuit catalog
 

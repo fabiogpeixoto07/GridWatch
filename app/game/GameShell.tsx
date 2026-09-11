@@ -7,7 +7,7 @@ import { isCreatorCircuit, loadCreatorCircuits, creatorCircuitFromDocument, type
 import { migrateLegacyCircuits } from "../track-creator/legacy-migration";
 import { migrateNorthstarCircuitDocument } from "../track-creator/legacy-circuit-document-migration";
 import { getThemePalette } from "../track-creator/domain/track/themes";
-import { categoryDrivers, CompetitionEditor, createDefaultCategory, loadCategories, type CompetitionCategory } from "../competition-editor";
+import { categoryDrivers, CompetitionEditor, createDefaultCategory, loadCategories, resolveDriverSprite, type CompetitionCategory, type DriverSpriteOverrides } from "../competition-editor";
 import { analyzeTrack, stepDriving, type DrivingGeometry, type DrivingPhase, type OvertakeState } from "../racing";
 import { buildRaceResultSnapshot, calculateFinishGap, type RaceResultSnapshot } from "../race-results";
 import { UI_COPY } from "../ui-copy";
@@ -52,7 +52,6 @@ type MenuScreen =
   | "single-setup"
   | "championship-setup"
   | "settings"
-  | "race-settings"
   | "audio-settings"
   | "appearance-settings"
   | "track-editor"
@@ -70,6 +69,7 @@ type Driver = {
   accent: string;
   thirdColor?: string;
   helmetColor?: string;
+  sprites?: DriverSpriteOverrides;
   skill: number;
   aggression: number;
   consistency: number;
@@ -393,14 +393,14 @@ function worldToCanvas(position: { x: number; y: number }, geometry: Geometry) {
   };
 }
 
-function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS): CarState[] {
+function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS, mechanicalFailureChancePercent = 12): CarState[] {
   const selected = drivers.slice(0, gridSize)
     .map((driver) => ({ driver, seedKey: stableSeedKey(driver.id), sort: seeded(seed * 19 + stableSeedKey(driver.id) * 137) }))
     .sort((a, b) => a.sort - b.sort);
 
   return selected.map(({ driver, seedKey }, index) => {
     const attributeSeed = seed * 1009 + seedKey * 313;
-    const failureChance = 0.09 + seeded(seed * 83 + seedKey * 61) * 0.06;
+    const failureChance = clamp(mechanicalFailureChancePercent, 0, 100) / 100;
     const willFail = seeded(seed * 127 + seedKey * 109) < failureChance;
     const failureAt = willFail
       ? 0.35 + seeded(seed * 211 + seedKey * 157) * Math.max(0.45, totalLaps - 0.65)
@@ -464,26 +464,35 @@ function initialCars(gridSize: number, seed: number, totalLaps: number, drivers:
   });
 }
 
-function TeamTintedSprite({ source, driver, alt }: { source: string; driver: Driver; alt: string }) {
-  const [tintedSource, setTintedSource] = useState(source);
+function TeamTintedSprite({ source, driver, alt, shouldTint }: { source: string; driver: Driver; alt: string; shouldTint: boolean }) {
+  const [tintedSource, setTintedSource] = useState(shouldTint ? "" : source);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     const controller = new AbortController();
-    void tintSprite(source, { blue: driver.color, green: driver.accent, white: driver.thirdColor ?? "#ffffff", red: driver.helmetColor ?? "#ff0000" }, controller.signal)
+    // Never show the untinted category source while its palette conversion is in progress.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTintedSource(shouldTint ? "" : source);
+    setState(shouldTint ? "loading" : "ready");
+    const imagePromise = shouldTint
+      ? tintSprite(source, { blue: driver.color, green: driver.accent, white: driver.thirdColor ?? "#ffffff", red: driver.helmetColor ?? "#ff0000" }, controller.signal)
+      : Promise.resolve(source);
+    void imagePromise
       .then((result) => { if (!controller.signal.aborted) { setTintedSource(result); setState("ready"); } })
-      .catch(() => { if (!controller.signal.aborted) { setTintedSource(source); setState("error"); } });
+      .catch(() => { if (!controller.signal.aborted) { setTintedSource(""); setState("error"); } });
     return () => controller.abort();
-  }, [driver.accent, driver.color, driver.helmetColor, driver.thirdColor, source]);
+  }, [driver.accent, driver.color, driver.helmetColor, driver.thirdColor, shouldTint, source]);
 
+  if (!tintedSource) return <span className="timing-car-sprite sprite-loading" role="img" aria-label={alt} data-asset-state={state} aria-busy={state === "loading"}>—</span>;
   // The source is a generated local data URL and has no stable remote image path.
   // eslint-disable-next-line @next/next/no-img-element
   return <img className="timing-car-sprite imported-sprite" src={tintedSource} alt={alt} data-asset-state={state} aria-busy={state === "loading"} />;
 }
 
-function TimingCarSprite({ driver, spriteSrc }: { driver: Driver; spriteSrc?: string }) {
-  if (spriteSrc?.startsWith("data:") || spriteSrc?.startsWith("/")) {
-    return <TeamTintedSprite source={spriteSrc} driver={driver} alt={`${driver.team} Formula car`} />;
+function TimingCarSprite({ driver, category }: { driver: Driver; category: CompetitionCategory }) {
+  const resolved = resolveDriverSprite(category, driver, "lateral");
+  if (resolved.source?.startsWith("data:") || resolved.source?.startsWith("/")) {
+    return <TeamTintedSprite source={resolved.source} shouldTint={resolved.shouldTint} driver={driver} alt={`${driver.team} Formula car`} />;
   }
   return (
     <svg
@@ -1212,18 +1221,25 @@ export function GameShell() {
   const [worldEngineState, setWorldEngineState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [customTracks, setCustomTracks] = useState<LegacyCustomCircuit[]>([]);
   const [creatorTracks, setCreatorTracks] = useState<CreatorCircuit[]>([]);
-  const [customCategories, setCustomCategories] = useState<CompetitionCategory[]>([]);
+  const [categories, setCategories] = useState<CompetitionCategory[]>([]);
   const [storageReady, setStorageReady] = useState(false);
-  const [officialCategory] = useState(createDefaultCategory);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const catalog = useMemo(() => [...TRACKS, ...customTracks, ...creatorTracks], [creatorTracks, customTracks]);
   const currentTrack = catalog[currentTrackIndex] ?? catalog[0] ?? TRACKS[0];
-  const categories = useMemo(() => [officialCategory, ...customCategories], [customCategories, officialCategory]);
-  const activeCategory = categories.find((category) => category.id === selectedCategoryId) ?? officialCategory;
-  const activeDrivers = useMemo(() => categoryDrivers(activeCategory) as Driver[], [activeCategory]);
+  const hasCategories = categories.length > 0;
+  const activeCategory = categories.find((category) => category.id === selectedCategoryId) ?? categories[0] ?? createDefaultCategory();
+  const activeDrivers = useMemo(() => hasCategories ? categoryDrivers(activeCategory) as Driver[] : [], [activeCategory, hasCategories]);
   const driverById = useMemo(() => new Map(activeDrivers.map((driver) => [String(driver.id), driver])), [activeDrivers]);
   const maxGridSize = Math.max(1, activeDrivers.length);
   const selectedGridSize = clamp(gridSize, 1, maxGridSize);
+
+  const selectCompetitionCategory = useCallback((id: string) => {
+    setSelectedCategoryId(id);
+    const category = categories.find((item) => item.id === id);
+    if (!category) return;
+    setTotalLaps(category.raceDefaults.totalLaps);
+    setGridSize(Math.max(1, Math.min(category.drivers.length, category.raceDefaults.gridSize)));
+  }, [categories]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1247,7 +1263,7 @@ export function GameShell() {
     })().catch(() => {
       // IndexedDB is optional. The embedded editor exposes its own recovery error when it is unavailable.
     });
-    setCustomCategories(loadCategories());
+    void loadCategories().then((loaded) => { if (!controller.signal.aborted) setCategories(loaded); });
     setSavedChampionshipSession(championshipSessionRepository.load());
     void assetRegistry.preloadCritical(controller.signal).finally(() => { if (!controller.signal.aborted) setStorageReady(true); });
     return () => controller.abort();
@@ -1297,11 +1313,15 @@ export function GameShell() {
 
   useEffect(() => {
     topSpriteRef.current = new Map();
-    const source = activeCategory.sprites.main;
-    if (!source.startsWith("data:") && !source.startsWith("/")) return;
     const controller = new AbortController();
     activeDrivers.forEach((driver) => {
-      void tintSprite(source, { blue: driver.color, green: driver.accent, white: driver.thirdColor ?? "#ffffff", red: driver.helmetColor ?? "#ff0000" }, controller.signal).then((result) => {
+      const resolved = resolveDriverSprite(activeCategory, driver, "main");
+      const source = resolved.source;
+      if (!source) return;
+      const imagePromise = resolved.shouldTint
+        ? tintSprite(source, { blue: driver.color, green: driver.accent, white: driver.thirdColor ?? "#ffffff", red: driver.helmetColor ?? "#ff0000" }, controller.signal)
+        : Promise.resolve(source);
+      void imagePromise.then((result) => {
         if (controller.signal.aborted) return;
         const tinted = new Image();
         tinted.onload = () => { if (!controller.signal.aborted) topSpriteRef.current.set(String(driver.id), tinted); };
@@ -1309,7 +1329,7 @@ export function GameShell() {
       }).catch(() => { /* Generated Canvas cars remain the fixed-size fallback. */ });
     });
     return () => controller.abort();
-  }, [activeCategory.sprites.main, activeDrivers]);
+  }, [activeCategory, activeDrivers]);
 
   const initAudio = useCallback(() => {
     if (audioRef.current) {
@@ -1455,7 +1475,7 @@ export function GameShell() {
   const resetRace = useCallback((newSeed?: number) => {
     const seed = newSeed ?? sessionSeedRef.current;
     sessionSeedRef.current = seed;
-    carsRef.current = initialCars(selectedGridSize, seed, totalLaps, activeDrivers);
+    carsRef.current = initialCars(selectedGridSize, seed, totalLaps, activeDrivers, activeCategory.mechanicalFailureChancePercent);
     raceTimeRef.current = 0;
     simulationAccumulatorRef.current = 0;
     countdownRef.current = 3;
@@ -1480,7 +1500,7 @@ export function GameShell() {
     setCountdown(3);
     setRaceStatus("ready");
     if (modeRef.current) initializeWorldRaceEngine(carsRef.current);
-  }, [activeDrivers, initializeWorldRaceEngine, selectedGridSize, totalLaps, setRaceStatus]);
+  }, [activeCategory.mechanicalFailureChancePercent, activeDrivers, initializeWorldRaceEngine, selectedGridSize, totalLaps, setRaceStatus]);
 
   const rollRaceSeed = useCallback(() => {
     raceSeedSequenceRef.current += 1;
@@ -1512,7 +1532,7 @@ export function GameShell() {
   }, [initAudio, setRaceStatus]);
 
   const beginSingleRace = useCallback(() => {
-    if (!selectedCategoryId) return;
+    if (!selectedCategoryId || !hasCategories) return;
     const seed = rollRaceSeed();
     const trackIndex =
       selectedTrackChoice === "random"
@@ -1529,10 +1549,10 @@ export function GameShell() {
     loadTrack(trackIndex);
     resetRace(seed);
     setScreen("race");
-  }, [autoplayDirector, catalog, loadTrack, resetRace, rollRaceSeed, selectedCategoryId, selectedTrackChoice]);
+  }, [autoplayDirector, catalog, hasCategories, loadTrack, resetRace, rollRaceSeed, selectedCategoryId, selectedTrackChoice]);
 
   const beginChampionship = useCallback(() => {
-    if (!selectedCategoryId) return;
+    if (!selectedCategoryId || !hasCategories) return;
     const seed = rollRaceSeed();
     const raceCount = clamp(Math.round(championshipLength), 2, catalog.length);
     const schedule = shuffledTrackIndices(seed, catalog).slice(0, raceCount);
@@ -1551,7 +1571,7 @@ export function GameShell() {
     resetRace(seed);
     setScreen("race");
     if (championshipPlaybackMode === "auto") queueRaceCountdown(120);
-  }, [autoplayDirector, catalog, championshipLength, championshipPlaybackMode, loadTrack, queueRaceCountdown, resetRace, rollRaceSeed, selectedCategoryId]);
+  }, [autoplayDirector, catalog, championshipLength, championshipPlaybackMode, hasCategories, loadTrack, queueRaceCountdown, resetRace, rollRaceSeed, selectedCategoryId]);
 
   const discardSavedChampionship = useCallback(() => {
     championshipSessionRepository.reset();
@@ -2215,15 +2235,16 @@ export function GameShell() {
       : UI_COPY.race.status[status];
 
   if (screen === "mode") {
-    return <MainMenu savedSession={savedChampionshipSession} circuitCount={catalog.length} driverCount={activeDrivers.length} onSingleRace={() => setScreen("single-setup")} onSettings={() => setScreen("settings")} onChampionship={() => setScreen("championship-setup")} onResumeChampionship={resumeSavedChampionship} onDiscardChampionship={discardSavedChampionship} />;
+    const compatibleSavedSession = savedChampionshipSession && categories.some((category) => category.id === savedChampionshipSession.categoryId) ? savedChampionshipSession : null;
+    return <MainMenu savedSession={compatibleSavedSession} circuitCount={catalog.length} categoryCount={categories.length} driverCount={activeDrivers.length} onSingleRace={() => setScreen("single-setup")} onSettings={() => setScreen("settings")} onChampionship={() => setScreen("championship-setup")} onResumeChampionship={resumeSavedChampionship} onDiscardChampionship={discardSavedChampionship} />;
   }
 
   if (screen === "settings") {
-    return <SettingsHub onOpen={(section) => setScreen(section === "race" || section === "audio" || section === "appearance" ? `${section}-settings` : section)} onBack={() => setScreen("mode")} />;
+    return <SettingsHub onOpen={(section) => setScreen(section === "audio" || section === "appearance" ? `${section}-settings` : section)} onBack={() => setScreen("mode")} />;
   }
 
-  if (screen === "race-settings" || screen === "audio-settings" || screen === "appearance-settings") {
-    return <SettingsDetail section={screen.replace("-settings", "") as SettingsSection} totalLaps={totalLaps} gridSize={selectedGridSize} theme={theme} soundOn={soundOn} onLapsChange={setTotalLaps} onGridChange={setGridSize} onThemeChange={setTheme} onToggleSound={toggleSound} onBack={() => setScreen("settings")} />;
+  if (screen === "audio-settings" || screen === "appearance-settings") {
+    return <SettingsDetail section={screen.replace("-settings", "") as SettingsSection} theme={theme} soundOn={soundOn} onThemeChange={setTheme} onToggleSound={toggleSound} onBack={() => setScreen("settings")} />;
   }
 
   if (screen === "track-editor") {
@@ -2236,20 +2257,20 @@ export function GameShell() {
 
   if (screen === "competition-editor") {
     if (!storageReady) return <LoadingScreen title={UI_COPY.editor.loadingLibrary} detail={UI_COPY.editor.restoringCategories} />;
-    return <CompetitionEditor onBack={() => setScreen("settings")} onSave={(saved) => setCustomCategories((current) => [...current.filter((category) => category.id !== saved.id), saved])} />;
+    return <CompetitionEditor onBack={() => setScreen("settings")} onLibraryChange={(next) => { setCategories(next); if (selectedCategoryId && !next.some((category) => category.id === selectedCategoryId)) setSelectedCategoryId(""); }} />;
   }
 
   if (screen === "single-setup") {
-    return <SingleRaceSetup catalog={catalog} categories={categories} selectedCategoryId={selectedCategoryId} selectedTrackChoice={selectedTrackChoice} selectedTrackPreview={selectedTrackPreview} activeCategory={activeCategory} totalLaps={totalLaps} gridSize={selectedGridSize} maxGridSize={maxGridSize} onCategoryChange={setSelectedCategoryId} onTrackChange={setSelectedTrackChoice} onLapsChange={setTotalLaps} onGridChange={setGridSize} onBack={() => setScreen("mode")} onConfirm={beginSingleRace} />;
+    return <SingleRaceSetup catalog={catalog} categories={categories} selectedCategoryId={selectedCategoryId} selectedTrackChoice={selectedTrackChoice} selectedTrackPreview={selectedTrackPreview} activeCategory={activeCategory} totalLaps={totalLaps} gridSize={selectedGridSize} maxGridSize={maxGridSize} onCategoryChange={selectCompetitionCategory} onTrackChange={setSelectedTrackChoice} onLapsChange={setTotalLaps} onGridChange={setGridSize} onBack={() => setScreen("mode")} onConfirm={beginSingleRace} />;
   }
 
   if (screen === "championship-setup") {
-    return <ChampionshipSetup catalog={catalog} categories={categories} selectedCategoryId={selectedCategoryId} totalLaps={totalLaps} gridSize={selectedGridSize} maxGridSize={maxGridSize} championshipLength={championshipLength} playbackMode={championshipPlaybackMode} resultDurationSeconds={resultDurationSeconds} standingsDurationSeconds={standingsDurationSeconds} pauseWhenHidden={pauseWhenHidden} onCategoryChange={setSelectedCategoryId} onLapsChange={setTotalLaps} onGridChange={setGridSize} onLengthChange={(value) => setChampionshipLength(clamp(value, 2, 50))} onPlaybackModeChange={(value) => { setChampionshipPlaybackMode(value); setAutoplayPaused(false); }} onResultDurationChange={(value) => setResultDurationSeconds(clamp(value, 2, 30))} onStandingsDurationChange={(value) => setStandingsDurationSeconds(clamp(value, 2, 30))} onPauseWhenHiddenChange={setPauseWhenHidden} onBack={() => setScreen("mode")} onConfirm={beginChampionship} />;
+    return <ChampionshipSetup catalog={catalog} categories={categories} selectedCategoryId={selectedCategoryId} totalLaps={totalLaps} gridSize={selectedGridSize} maxGridSize={maxGridSize} championshipLength={championshipLength} playbackMode={championshipPlaybackMode} resultDurationSeconds={resultDurationSeconds} standingsDurationSeconds={standingsDurationSeconds} pauseWhenHidden={pauseWhenHidden} onCategoryChange={selectCompetitionCategory} onLapsChange={setTotalLaps} onGridChange={setGridSize} onLengthChange={(value) => setChampionshipLength(clamp(value, 2, 50))} onPlaybackModeChange={(value) => { setChampionshipPlaybackMode(value); setAutoplayPaused(false); }} onResultDurationChange={(value) => setResultDurationSeconds(clamp(value, 2, 30))} onStandingsDurationChange={(value) => setStandingsDurationSeconds(clamp(value, 2, 30))} onPauseWhenHiddenChange={setPauseWhenHidden} onBack={() => setScreen("mode")} onConfirm={beginChampionship} />;
   }
 
   if (screen === "championship-results") {
     const champion = championshipStandings[0];
-    return <ChampionshipResults standings={championshipStandings} rounds={championshipSchedule.length} championPreview={champion ? <TimingCarSprite driver={champion.driver} spriteSrc={activeCategory.sprites.lateral} /> : null} onMenu={returnToMenu} onNewChampionship={() => setScreen("championship-setup")} />;
+    return <ChampionshipResults standings={championshipStandings} rounds={championshipSchedule.length} championPreview={champion ? <TimingCarSprite driver={champion.driver} category={activeCategory} /> : null} onMenu={returnToMenu} onNewChampionship={() => setScreen("championship-setup")} />;
   }
 
   return (
@@ -2266,7 +2287,7 @@ export function GameShell() {
 
       <section className="race-layout">
         <RaceHud canvasRef={canvasRef} trackName={currentTrack.name} physicalCarCount={cars.filter((car) => car.worldX !== null && car.worldY !== null).length} currentLap={currentLap} totalLaps={totalLaps} raceTime={formatTime(raceTime)} leaderCode={leader ? driverById.get(leader.id)?.code ?? "—" : "—"} leaderColor={leader ? driverById.get(leader.id)?.color ?? "#fff" : "#fff"} bestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : "—"} countdown={status === "countdown" ? countdown : null} overlay={<BroadcastPanel currentLap={currentLap} totalLaps={totalLaps} fastestDriver={bestLapEntry ? driverById.get(bestLapEntry.id)?.code : undefined} fastestLap={bestLapEntry ? formatTime(bestLapEntry.bestLap) : undefined} entries={standings.map((car, index) => ({ id: car.id, code: driverById.get(car.id)?.code ?? car.id, status: car.mechanical, gapSeconds: index === 0 ? 0 : Math.max(0, (leader ? leader.distance - car.distance : 0) * 22.8) }))} />} />
-        <LiveTiming currentLap={currentLap} drivers={driverById} championship={gameMode === "championship"} renderCar={(driver) => <TimingCarSprite driver={driver as Driver} spriteSrc={activeCategory.sprites.lateral} />} entries={standings.map((car, index) => {
+        <LiveTiming currentLap={currentLap} drivers={driverById} championship={gameMode === "championship"} renderCar={(driver) => <TimingCarSprite driver={driver as Driver} category={activeCategory} />} entries={standings.map((car, index) => {
           const gapLaps = leader ? leader.distance - car.distance : 0;
           const resultEntry = raceResult?.entries.find((entry) => entry.id === car.id);
           const finalGap = resultEntry?.gapSeconds ?? calculateFinishGap(car.finishedAt, leader?.finishedAt ?? null);

@@ -9,6 +9,11 @@ import { Brand } from "./ui/brand";
 import { LoadingScreen } from "./ui/loading-screen";
 import { DriverEditor } from "./editor/competition/DriverEditor";
 import { Dialog } from "./design-system/Dialog";
+import { tintSprite } from "./lib/sprite-service";
+
+export type SpriteView = "main" | "lateral";
+
+export type DriverSpriteOverrides = Partial<Record<SpriteView, string>>;
 
 export type CompetitionDriver = {
   id: string;
@@ -26,7 +31,7 @@ export type CompetitionDriver = {
   defense: number;
   risk: number;
   number: number;
-  sprite?: string;
+  sprites?: DriverSpriteOverrides;
 };
 
 export type CompetitionTeam = {
@@ -57,16 +62,26 @@ export type CompetitionCategory = {
   lateralScale?: number;
   vehicleSpec: VehicleSpec;
   strategyRules: StrategyRulesV1;
-  version: 2;
+  mechanicalFailureChancePercent: number;
+  raceDefaults: { totalLaps: 3 | 6 | 9 | 12; gridSize: number };
+  version: 3;
   official: boolean;
   updatedAt: string;
 };
 
 const STORAGE_KEY = "gridwatch.competition-categories";
 const COMPETITION_EXPORT_FORMAT = "gridwatch-competition";
-const COMPETITION_EXPORT_VERSION = 1;
-const categoryRepository = createStorageRepository(STORAGE_KEY, [], isCategoryArray);
-const draftRepository = createStorageRepository<CompetitionCategory | null>(`${STORAGE_KEY}.draft`, null, (value): value is CompetitionCategory | null => value === null || isCategoryDocument(value));
+const COMPETITION_EXPORT_VERSION = 2;
+const COMPETITION_DATABASE = "gridwatch-competition-library";
+const COMPETITION_STORE = "documents";
+const LIBRARY_DOCUMENT_KEY = "library";
+const DRAFT_DOCUMENT_KEY = "draft";
+const MAX_COMPETITION_BYTES = 32 * 1024 * 1024;
+const LEGACY_CATEGORY_REPOSITORY = createStorageRepository(STORAGE_KEY, [], isCategoryArray);
+const LEGACY_DRAFT_REPOSITORY = createStorageRepository<CompetitionCategory | null>(`${STORAGE_KEY}.draft`, null, (value): value is CompetitionCategory | null => value === null || isCategoryDocument(value));
+const LAP_OPTIONS = [3, 6, 9, 12] as const;
+
+type CompetitionLibrary = { version: 1; categories: CompetitionCategory[] };
 const roster = [
   ["SOL", "Maya Solari", "Solaris GP", "#ffb703", "#fff2b8"], ["VALE", "Luca Vale", "Velox Racing", "#ed263a", "#ffd5da"],
   ["KAI", "Ari Kai", "Apex Blue", "#209cff", "#c8e9ff"], ["NOVA", "Nico Nova", "Nova Corse", "#9b5cff", "#e3d5ff"],
@@ -82,13 +97,6 @@ const roster = [
 ] as const;
 
 const HELMET_COLORS = ["#f4f4f1", "#18212b", "#f1c40f", "#e67e22", "#2ecc71", "#e74c3c", "#8e44ad", "#16a085", "#ecf0f1", "#34495e", "#d35400", "#2980b9", "#c0392b", "#7f8c8d", "#f39c12", "#95a5a6"];
-
-const SPRITE_PRESETS = [
-  { id: "default", label: "RESTORE DEFAULT", color: "#0066ff", main: "/assets/sprites/formula-default-top.svg", lateral: "/assets/sprites/formula-default-lateral.svg" },
-  { id: "solaris", label: "SOLARIS", color: "#ffb703", main: "/assets/sprites/formula-solaris-top.svg", lateral: "/assets/sprites/formula-solaris-lateral.svg" },
-  { id: "velox", label: "VELOX", color: "#ed263a", main: "/assets/sprites/formula-velox-top.svg", lateral: "/assets/sprites/formula-velox-lateral.svg" },
-  { id: "apex", label: "APEX BLUE", color: "#209cff", main: "/assets/sprites/formula-apex-top.svg", lateral: "/assets/sprites/formula-apex-lateral.svg" },
-] as const;
 
 function isSafeSvg(source: string) {
   return /<svg[\s>]/i.test(source)
@@ -125,22 +133,43 @@ export function createDefaultCategory(): CompetitionCategory {
     lateralScale: 1,
     vehicleSpec: { ...DEFAULT_FORMULA_VEHICLE_SPEC },
     strategyRules: structuredClone(DEFAULT_FORMULA_STRATEGY),
-    version: 2,
+    mechanicalFailureChancePercent: 12,
+    raceDefaults: { totalLaps: 6, gridSize: Math.min(12, teams.length) },
+    version: 3,
     official: true,
     updatedAt: new Date().toISOString(),
   };
 }
 
-export function loadCategories(): CompetitionCategory[] {
-  const value = categoryRepository.load();
-  return value.map((category) => ({
+function normalizedSpriteOverrides(value: unknown, legacyTop?: unknown): DriverSpriteOverrides | undefined {
+  const candidate = isRecord(value) ? value : {};
+  const main = typeof candidate.main === "string" ? candidate.main : typeof legacyTop === "string" ? legacyTop : undefined;
+  const lateral = typeof candidate.lateral === "string" ? candidate.lateral : undefined;
+  return main || lateral ? { ...(main ? { main } : {}), ...(lateral ? { lateral } : {}) } : undefined;
+}
+
+function normalizeCategory(category: CompetitionCategory): CompetitionCategory {
+  const driverCount = Math.max(1, category.drivers.length);
+  const rawDefaults = (isRecord(category.raceDefaults) ? category.raceDefaults : {}) as Record<string, unknown>;
+  const requestedLaps = typeof rawDefaults.totalLaps === "number" ? rawDefaults.totalLaps : 6;
+  const totalLaps = (LAP_OPTIONS.includes(requestedLaps as 3 | 6 | 9 | 12) ? requestedLaps : 6) as 3 | 6 | 9 | 12;
+  const requestedGrid = typeof rawDefaults.gridSize === "number" ? rawDefaults.gridSize : Math.min(12, driverCount);
+  const gridSize = Math.max(1, Math.min(driverCount, Math.round(requestedGrid)));
+  return {
     ...category,
-    version: 2,
+    version: 3,
+    mechanicalFailureChancePercent: Math.max(0, Math.min(100, Number.isFinite(category.mechanicalFailureChancePercent) ? category.mechanicalFailureChancePercent : 12)),
+    raceDefaults: { totalLaps, gridSize },
     vehicleSpec: normalizeVehicleSpec(category.vehicleSpec),
     strategyRules: normalizeStrategyRules(category.strategyRules),
     teams: category.teams.map((team) => ({ ...team, thirdColor: team.thirdColor ?? "#ffffff" })),
-    drivers: category.drivers.map((driver, index) => ({ ...driver, id: typeof driver.id === "string" && driver.id ? driver.id : `driver-${index + 1}`, helmetColor: driver.helmetColor ?? HELMET_COLORS[index % HELMET_COLORS.length] })),
-  }));
+    drivers: category.drivers.map((driver, index) => ({
+      ...driver,
+      id: typeof driver.id === "string" && driver.id ? driver.id : `driver-${index + 1}`,
+      helmetColor: driver.helmetColor ?? HELMET_COLORS[index % HELMET_COLORS.length],
+      sprites: normalizedSpriteOverrides(driver.sprites, (driver as CompetitionDriver & { sprite?: unknown }).sprite),
+    })),
+  };
 }
 
 function isCategoryArray(value: unknown): value is CompetitionCategory[] {
@@ -149,7 +178,7 @@ function isCategoryArray(value: unknown): value is CompetitionCategory[] {
 
 export function isCategoryDocument(value: unknown): value is CompetitionCategory {
   return isRecord(value)
-    && (value.version === 1 || value.version === 2)
+    && (value.version === 1 || value.version === 2 || value.version === 3)
     && typeof value.id === "string"
     && typeof value.name === "string"
     && Array.isArray(value.drivers)
@@ -161,8 +190,107 @@ export function isCategoryDocument(value: unknown): value is CompetitionCategory
     && typeof value.sprites.lateral === "string";
 }
 
-export function saveCategories(categories: CompetitionCategory[]) {
-  return categoryRepository.save(categories);
+function openCompetitionDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(COMPETITION_DATABASE, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(COMPETITION_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Competition storage is unavailable."));
+  });
+}
+
+async function readCompetitionDocument<T>(key: string): Promise<T | undefined> {
+  const database = await openCompetitionDatabase();
+  try {
+    return await new Promise<T | undefined>((resolve, reject) => {
+      const request = database.transaction(COMPETITION_STORE, "readonly").objectStore(COMPETITION_STORE).get(key);
+      request.onsuccess = () => resolve(request.result as T | undefined);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function writeCompetitionDocument<T>(key: string, value: T) {
+  const database = await openCompetitionDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(COMPETITION_STORE, "readwrite");
+      transaction.objectStore(COMPETITION_STORE).put(value, key);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function deleteCompetitionDocument(key: string) {
+  const database = await openCompetitionDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(COMPETITION_STORE, "readwrite");
+      transaction.objectStore(COMPETITION_STORE).delete(key);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+function isCompetitionLibrary(value: unknown): value is CompetitionLibrary {
+  return isRecord(value) && value.version === 1 && Array.isArray(value.categories) && value.categories.every(isCategoryDocument);
+}
+
+export async function loadCategories(): Promise<CompetitionCategory[]> {
+  try {
+    const stored = await readCompetitionDocument<unknown>(LIBRARY_DOCUMENT_KEY);
+    if (isCompetitionLibrary(stored)) return stored.categories.map(normalizeCategory);
+    const migrated = [createDefaultCategory(), ...LEGACY_CATEGORY_REPOSITORY.load().map(normalizeCategory)];
+    await writeCompetitionDocument<CompetitionLibrary>(LIBRARY_DOCUMENT_KEY, { version: 1, categories: migrated });
+    LEGACY_CATEGORY_REPOSITORY.reset();
+    return migrated;
+  } catch {
+    return [createDefaultCategory(), ...LEGACY_CATEGORY_REPOSITORY.load().map(normalizeCategory)];
+  }
+}
+
+export async function saveCategories(categories: CompetitionCategory[]) {
+  try {
+    await writeCompetitionDocument<CompetitionLibrary>(LIBRARY_DOCUMENT_KEY, { version: 1, categories: categories.map(normalizeCategory) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function loadDraft() {
+  try {
+    const stored = await readCompetitionDocument<unknown>(DRAFT_DOCUMENT_KEY);
+    if (isCategoryDocument(stored)) return normalizeCategory(stored);
+    const legacy = LEGACY_DRAFT_REPOSITORY.load();
+    if (legacy) {
+      const normalized = normalizeCategory(legacy);
+      await writeCompetitionDocument(DRAFT_DOCUMENT_KEY, normalized);
+      LEGACY_DRAFT_REPOSITORY.reset();
+      return normalized;
+    }
+  } catch {
+    return LEGACY_DRAFT_REPOSITORY.load();
+  }
+  return null;
+}
+
+async function saveDraft(category: CompetitionCategory) {
+  try { await writeCompetitionDocument(DRAFT_DOCUMENT_KEY, category); return true; } catch { return false; }
+}
+
+async function resetDraft() {
+  try { await deleteCompetitionDocument(DRAFT_DOCUMENT_KEY); } catch { LEGACY_DRAFT_REPOSITORY.reset(); }
 }
 
 type CompetitionExportDocument = {
@@ -182,9 +310,13 @@ export function serializeCompetition(category: CompetitionCategory) {
   return JSON.stringify(document, null, 2);
 }
 
+function competitionPayloadTooLarge(category: CompetitionCategory) {
+  return new Blob([serializeCompetition(category)]).size > MAX_COMPETITION_BYTES;
+}
+
 function importedCompetition(value: unknown): CompetitionCategory {
   const candidate = isRecord(value) && value.format === COMPETITION_EXPORT_FORMAT
-    ? value.version === COMPETITION_EXPORT_VERSION ? value.competition : undefined
+    ? (value.version === 1 || value.version === COMPETITION_EXPORT_VERSION) ? value.competition : undefined
     : value;
   if (!isCategoryDocument(candidate)) throw new Error("schema");
   const now = Date.now();
@@ -204,23 +336,28 @@ function importedCompetition(value: unknown): CompetitionCategory {
     driverIds.add(id);
     return { ...driver, id, teamId: teamIds.has(driver.teamId) ? driver.teamId : teams[0]?.id ?? "" };
   });
-  return {
+  return normalizeCategory({
     ...candidate,
     id: `custom-category-${now}`,
     official: false,
-    version: 2,
+    version: 3,
     vehicleSpec: normalizeVehicleSpec(candidate.vehicleSpec),
     strategyRules: normalizeStrategyRules(candidate.strategyRules),
     sprites: { ...candidate.sprites, thumbnail: candidate.sprites.thumbnail || candidate.sprites.main },
     teams,
     drivers,
     updatedAt: new Date().toISOString(),
-  };
+  } as CompetitionCategory);
 }
 
 export function categoryDrivers(category: CompetitionCategory) {
   const teams = new Map(category.teams.map((team) => [team.id, team]));
   return category.drivers.map((driver) => ({ ...driver, team: teams.get(driver.teamId)?.name ?? "Independent", color: teams.get(driver.teamId)?.color ?? driver.color, accent: teams.get(driver.teamId)?.accent ?? driver.accent, thirdColor: teams.get(driver.teamId)?.thirdColor ?? "#ffffff" }));
+}
+
+export function resolveDriverSprite(category: CompetitionCategory, driver: { sprites?: DriverSpriteOverrides } | undefined, view: SpriteView) {
+  const customSource = driver?.sprites?.[view];
+  return { source: customSource ?? category.sprites[view], shouldTint: !customSource };
 }
 
 function newCategory(index: number): CompetitionCategory {
@@ -261,6 +398,9 @@ export function validateCategory(category: CompetitionCategory) {
     [driver.skill, driver.aggression, driver.consistency, driver.cornering, driver.overtaking, driver.defense, driver.risk].forEach((value) => { if (value < 0 || value > 100) errors.push(`Invalid attribute for ${driver.name}.`); });
   });
   errors.push(...validateVehicleSpec(category.vehicleSpec));
+  if (!Number.isFinite(category.mechanicalFailureChancePercent) || category.mechanicalFailureChancePercent < 0 || category.mechanicalFailureChancePercent > 100) errors.push("Mechanical failure chance must be between 0 and 100%.");
+  if (!LAP_OPTIONS.includes(category.raceDefaults.totalLaps)) errors.push("Default laps must be 3, 6, 9, or 12.");
+  if (!Number.isInteger(category.raceDefaults.gridSize) || category.raceDefaults.gridSize < 1 || category.raceDefaults.gridSize > category.drivers.length) errors.push("Default grid must fit the category drivers.");
   errors.push(...validateStrategyRules(category.strategyRules));
   return [...new Set(errors)].slice(0, 5);
 }
@@ -288,10 +428,21 @@ function CarPreview({ category, driver, view = "lateral" }: { category: Competit
   const gradientId = `category-car-gradient-${useId().replace(/:/g, "")}`;
   const previewScale = view === "main" ? category.spriteScale ?? 1 : category.lateralScale ?? 1;
   const { first: primary, second: secondary, third, helmet } = liveryFor(category, driver);
-  const imported = category.sprites[view];
-  // Imported data URLs are user-authored local assets; next/image cannot optimize them.
-  // eslint-disable-next-line @next/next/no-img-element
-  if (imported.startsWith("data:")) return <img className="competition-car-preview imported-sprite" style={{ transform: `scale(${previewScale})` }} src={imported} alt="Custom car sprite" />;
+  const resolved = resolveDriverSprite(category, driver, view);
+  const [imageSource, setImageSource] = useState<string | null>(resolved.shouldTint ? null : resolved.source);
+  useEffect(() => {
+    const controller = new AbortController();
+    // Resetting the preview prevents an untinted category mask from ever flashing during a sprite change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!resolved.source) { setImageSource(null); return () => controller.abort(); }
+    if (!resolved.shouldTint) { setImageSource(resolved.source); return () => controller.abort(); }
+    setImageSource(null);
+    void tintSprite(resolved.source, { blue: primary, green: secondary, white: third, red: helmet }, controller.signal)
+      .then((value) => { if (!controller.signal.aborted) setImageSource(value); })
+      .catch(() => { if (!controller.signal.aborted) setImageSource(null); });
+    return () => controller.abort();
+  }, [helmet, primary, resolved.shouldTint, resolved.source, secondary, third]);
+  if (imageSource) return <img className="competition-car-preview imported-sprite" style={{ transform: `scale(${previewScale})` }} src={imageSource} alt={`${driver?.name ?? category.name} ${view === "main" ? "top" : "side"} sprite`} data-sprite-mode={resolved.shouldTint ? "category-tinted" : "driver-custom"} />;
   return <svg className="competition-car-preview" style={{ transform: `scale(${previewScale})` }} viewBox="0 0 260 96" role="img" aria-label="Category car preview">
     <defs><linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1"><stop stopColor={secondary} /><stop offset=".35" stopColor={primary} /><stop offset="1" stopColor={primary} /></linearGradient></defs>
     <path d="M18 66h52l22-21h49l30 20h52v12H18z" fill="#101718" />
@@ -304,51 +455,55 @@ function CarPreview({ category, driver, view = "lateral" }: { category: Competit
   </svg>;
 }
 
-export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSave: (category: CompetitionCategory) => void }) {
-  const official = useMemo(() => createDefaultCategory(), []);
-  const [categories, setCategories] = useState<CompetitionCategory[]>(() => [official]);
+export function CompetitionEditor({ onBack, onLibraryChange }: { onBack: () => void; onLibraryChange: (categories: CompetitionCategory[]) => void }) {
+  const [categories, setCategories] = useState<CompetitionCategory[]>([]);
   const [storageReady, setStorageReady] = useState(false);
-  const [selectedId, setSelectedId] = useState(official.id);
-  const selected = categories.find((category) => category.id === selectedId) ?? official;
-  const [draft, setDraft] = useState<CompetitionCategory>(selected);
+  const [selectedId, setSelectedId] = useState("");
+  const selected = categories.find((category) => category.id === selectedId);
+  const [draft, setDraft] = useState<CompetitionCategory>(() => createDefaultCategory());
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [tab, setTab] = useState<"category" | "teams" | "drivers" | "sprites">("category");
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState("");
   const [pendingImport, setPendingImport] = useState<CompetitionCategory | null>(null);
   const competitionImportId = useId();
-  const errors = useMemo(() => validateCategory(draft), [draft]);
+  const errors = useMemo(() => selected ? validateCategory(draft) : [], [draft, selected]);
 
   useEffect(() => {
     // Restore browser-only data after hydration so SSR and client markup remain deterministic.
-    const stored = loadCategories();
-    const recovered = draftRepository.load();
-    if (recovered && !recovered.official && window.confirm(UI_COPY.editor.competition.recoverDraft(recovered.name))) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCategories([official, ...stored.filter((category) => category.id !== recovered.id), recovered]);
-      setSelectedId(recovered.id);
-      setMessage(UI_COPY.editor.competition.draftRecovered);
-    } else {
-      setCategories([official, ...stored]);
-      if (recovered) draftRepository.reset();
-    }
-    setStorageReady(true);
-  }, [official]);
+    let active = true;
+    void Promise.all([loadCategories(), loadDraft()]).then(async ([stored, recovered]) => {
+      if (!active) return;
+      if (recovered && !recovered.official && window.confirm(UI_COPY.editor.competition.recoverDraft(recovered.name))) {
+        const next = [...stored.filter((category) => category.id !== recovered.id), recovered];
+        setCategories(next);
+        setSelectedId(recovered.id);
+        setMessage(UI_COPY.editor.competition.draftRecovered);
+      } else {
+        setCategories(stored);
+        setSelectedId(stored[0]?.id ?? "");
+        if (recovered) await resetDraft();
+      }
+      setStorageReady(true);
+    }).catch(() => { if (active) setStorageReady(true); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     // The draft must follow an explicit category selection, not every draft edit.
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!selected) { setDirty(false); setSelectedDriverId(""); return; }
     setDraft(selected);
     setDirty(false);
     setSelectedDriverId(selected.drivers[0]?.id ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selected]);
 
   useEffect(() => {
-    if (!storageReady || !dirty || draft.official) return;
-    const timeout = window.setTimeout(() => draftRepository.save(draft), 400);
+    if (!storageReady || !dirty || draft.official || !selected) return;
+    const timeout = window.setTimeout(() => { void saveDraft(draft); }, 400);
     return () => window.clearTimeout(timeout);
-  }, [draft, dirty, storageReady]);
+  }, [draft, dirty, selected, storageReady]);
 
   const updateDraft = (next: CompetitionCategory) => { setDraft({ ...next, updatedAt: new Date().toISOString() }); setDirty(true); };
   const updateVehicleSpec = (field: keyof Omit<VehicleSpec, "version">, value: number) => updateDraft({ ...draft, vehicleSpec: { ...draft.vehicleSpec, [field]: value } });
@@ -403,23 +558,32 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
     updateDraft({ ...draft, drivers: [...draft.drivers.slice(0, index + 1), copy, ...draft.drivers.slice(index + 1)] });
     setSelectedDriverId(copy.id);
   };
-  const duplicate = () => { const copy = { ...draft, id: `custom-category-${Date.now()}`, name: `${draft.name} Copy`, official: false, teams: draft.teams.map((team) => ({ ...team, id: `${team.id}-copy` })), drivers: draft.drivers.map((driver) => ({ ...driver, teamId: `${driver.teamId}-copy` })) }; const next = [...categories, copy]; setCategories(next); setSelectedId(copy.id); saveCategories(next.filter((category) => !category.official)); setMessage(UI_COPY.editor.competition.duplicated); };
-  const remove = () => { if (draft.official) { setMessage(UI_COPY.editor.competition.officialProtected); return; } const next = categories.filter((category) => category.id !== draft.id); setCategories(next); setSelectedId(official.id); saveCategories(next.filter((category) => !category.official)); setMessage(UI_COPY.editor.competition.removed); };
-  const save = () => {
+  const persistLibrary = async (next: CompetitionCategory[]) => {
+    if (!await saveCategories(next)) { setMessage(UI_COPY.editor.competition.storageFailure); return false; }
+    setCategories(next);
+    onLibraryChange(next);
+    return true;
+  };
+  const duplicate = () => { const copy = { ...draft, id: `custom-category-${Date.now()}`, name: `${draft.name} Copy`, official: false, teams: draft.teams.map((team) => ({ ...team, id: `${team.id}-copy` })), drivers: draft.drivers.map((driver) => ({ ...driver, teamId: `${driver.teamId}-copy` })) }; const next = [...categories, copy]; setCategories(next); setSelectedId(copy.id); void persistLibrary(next); setMessage(UI_COPY.editor.competition.duplicated); };
+  const remove = () => {
+    if (!selected) return;
+    if (!window.confirm(`Remove ${draft.name}? This category will no longer be available for racing on this device.`)) return;
+    const next = categories.filter((category) => category.id !== draft.id);
+    setSelectedId(next[0]?.id ?? "");
+    void persistLibrary(next).then((saved) => { if (saved) setMessage(UI_COPY.editor.competition.removed); });
+  };
+  const save = async () => {
     if (draft.official) { setMessage(UI_COPY.editor.competition.protectedSave); return; }
     if (errors.length) { setMessage(UI_COPY.editor.competition.fixIssues); return; }
+    if (competitionPayloadTooLarge(draft)) { setMessage(`This category exceeds the ${MAX_COMPETITION_BYTES / 1024 / 1024} MB portable competition limit.`); return; }
     const next = [...categories.filter((category) => category.id !== draft.id), draft];
-    if (!saveCategories(next.filter((category) => !category.official))) {
-      setMessage(UI_COPY.editor.competition.storageFailure);
-      return;
-    }
-    setCategories(next);
-    onSave(draft);
+    if (!await persistLibrary(next)) return;
     setDirty(false);
-    draftRepository.reset();
+    await resetDraft();
     setMessage(UI_COPY.editor.competition.saved);
   };
   const exportCompetition = () => {
+    if (competitionPayloadTooLarge(draft)) { setMessage(`This category exceeds the ${MAX_COMPETITION_BYTES / 1024 / 1024} MB portable competition limit.`); return; }
     const blob = new Blob([serializeCompetition(draft)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -433,7 +597,7 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (file.size > 2_000_000) { setMessage(UI_COPY.editor.competition.jsonTooLarge); return; }
+    if (file.size > MAX_COMPETITION_BYTES) { setMessage(`The competition file exceeds the ${MAX_COMPETITION_BYTES / 1024 / 1024} MB limit.`); return; }
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -477,6 +641,37 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
     else reader.readAsDataURL(file);
   };
 
+  const importDriverSprite = (view: SpriteView, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    const target = draft.drivers.find((item) => item.id === selectedDriverId);
+    if (!file || !target) return;
+    if (file.size > 10_000_000) { setMessage(UI_COPY.editor.competition.spriteTooLarge); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = String(reader.result);
+      const isSvg = file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+      if (isSvg && !isSafeSvg(result)) { setMessage("The SVG contains unsupported or unsafe content."); return; }
+      const value = isSvg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result)}` : result;
+      if (!value.startsWith("data:image/") || !await validateDecodedImage(value)) { setMessage(UI_COPY.editor.competition.spriteDimensionsInvalid); return; }
+      const nextSprites = { ...target.sprites, [view]: value };
+      updateDraft({ ...draft, drivers: draft.drivers.map((item) => item.id === target.id ? { ...item, sprites: nextSprites } : item) });
+      setMessage(`Custom ${view === "main" ? "top" : "side"} sprite loaded for ${target.name}. Palette masks are disabled for this view.`);
+    };
+    reader.onerror = () => setMessage(UI_COPY.editor.competition.spriteReadFailure);
+    if (file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg")) reader.readAsText(file);
+    else reader.readAsDataURL(file);
+  };
+
+  const removeDriverSprite = (view: SpriteView) => {
+    const target = draft.drivers.find((item) => item.id === selectedDriverId);
+    if (!target?.sprites?.[view]) return;
+    const remaining = { ...target.sprites };
+    delete remaining[view];
+    updateDraft({ ...draft, drivers: draft.drivers.map((item) => item.id === target.id ? { ...item, sprites: Object.keys(remaining).length ? remaining : undefined } : item) });
+    setMessage(`${target.name} now uses the category ${view === "main" ? "top" : "side"} sprite.`);
+  };
+
   const driver = draft.drivers.find((item) => item.id === selectedDriverId);
   const leaveEditor = () => {
     if (dirty && !window.confirm(UI_COPY.editor.discardChanges)) return;
@@ -484,6 +679,12 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
   };
 
   if (!storageReady) return <LoadingScreen title={UI_COPY.editor.competition.loading} detail={UI_COPY.editor.competition.restoring} />;
+
+  if (!selected) return <main className="competition-editor-shell competition-editor-empty">
+    <header className="competition-editor-header"><Brand className="brand" /><div><small>COMPETITION CREATION TOOL</small><strong>COMPETITION EDITOR</strong></div><div className="competition-editor-actions"><button onClick={leaveEditor}>← BACK</button><label className="import-button" htmlFor={competitionImportId}>{UI_COPY.editor.competition.importCompetition}<input id={competitionImportId} aria-label={UI_COPY.editor.competition.importCompetition} type="file" accept="application/json,.competition.json" onChange={importCompetition} /></label></div></header>
+    <section className="competition-empty-state"><span className="editor-label">NO COMPETITION CATEGORIES</span><h1>Racing is unavailable until a category is created or imported.</h1><p>Create a category to define its drivers, racing defaults, mechanical failure chance, and sprite library.</p><button className="primary" onClick={() => { const next = newCategory(categories.length + 1); setCategories([next]); setSelectedId(next.id); }}>+ NEW CATEGORY</button></section>
+    {pendingImport && <Dialog title={UI_COPY.editor.competition.importPreview} onClose={() => setPendingImport(null)} actions={<><button onClick={() => setPendingImport(null)}>{UI_COPY.editor.competition.cancelImport}</button><button className="primary" onClick={() => { const next = [pendingImport]; void persistLibrary(next); setSelectedId(pendingImport.id); setPendingImport(null); setMessage(UI_COPY.editor.competition.imported); }}>{UI_COPY.editor.competition.confirmImport}</button></>}><h2>{pendingImport.name}</h2><p>{pendingImport.teams.length} teams · {pendingImport.drivers.length} drivers · {pendingImport.vehicleSpec.massKg} kg</p></Dialog>}
+  </main>;
 
   return <main className="competition-editor-shell">
     <header className="competition-editor-header"><Brand className="brand" /><div><small>COMPETITION CREATION TOOL</small><strong>COMPETITION EDITOR</strong></div><div className="competition-editor-actions"><button onClick={leaveEditor}>← BACK</button><button onClick={duplicate}>DUPLICATE</button><button onClick={remove}>REMOVE</button><button onClick={exportCompetition}>{UI_COPY.editor.competition.exportCompetition}</button><label className="import-button" htmlFor={competitionImportId}>{UI_COPY.editor.competition.importCompetition}<input id={competitionImportId} aria-label={UI_COPY.editor.competition.importCompetition} type="file" accept="application/json,.competition.json" onChange={importCompetition} /></label><button className="primary" onClick={save} disabled={Boolean(errors.length || draft.official)}>SAVE</button></div></header>
@@ -495,6 +696,14 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
           <label><span>DESCRIPTION</span><textarea value={draft.description} onChange={(event) => updateDraft({ ...draft, description: event.target.value })} /></label>
           <label><span>MANUFACTURER / IDENTITY</span><input value={draft.manufacturer} onChange={(event) => updateDraft({ ...draft, manufacturer: event.target.value })} /></label>
           <div className="color-fields"><label><span>PRIMARY COLOR</span><input type="color" value={draft.primaryColor} onChange={(event) => updateDraft({ ...draft, primaryColor: event.target.value })} /></label><label><span>SECONDARY COLOR</span><input type="color" value={draft.secondaryColor} onChange={(event) => updateDraft({ ...draft, secondaryColor: event.target.value })} /></label></div>
+          <section className="vehicle-spec-panel category-race-defaults-panel">
+            <header><strong>RACING DEFAULTS</strong><small>Used when this category is selected for a new race or championship. Event setup can still override them.</small></header>
+            <div>
+              <label><span>DEFAULT LAPS</span><select value={draft.raceDefaults.totalLaps} onChange={(event) => updateDraft({ ...draft, raceDefaults: { ...draft.raceDefaults, totalLaps: Number(event.target.value) as 3 | 6 | 9 | 12 } })}>{LAP_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+              <label><span>DEFAULT CARS</span><input type="number" min="1" max={Math.max(1, draft.drivers.length)} value={draft.raceDefaults.gridSize} onChange={(event) => updateDraft({ ...draft, raceDefaults: { ...draft.raceDefaults, gridSize: Math.max(1, Math.min(draft.drivers.length, Number(event.target.value))) } })} /></label>
+              <label><span>MECHANICAL FAILURE CHANCE · %</span><input type="number" min="0" max="100" step="1" value={draft.mechanicalFailureChancePercent} onChange={(event) => updateDraft({ ...draft, mechanicalFailureChancePercent: Math.max(0, Math.min(100, Number(event.target.value))) })} /></label>
+            </div>
+          </section>
           <section className="vehicle-spec-panel">
             <header><strong>{UI_COPY.editor.competition.vehiclePhysics}</strong><small>{UI_COPY.editor.competition.vehiclePhysicsDescription}</small></header>
             <div>
@@ -524,12 +733,12 @@ export function CompetitionEditor({ onBack, onSave }: { onBack: () => void; onSa
           <p className="editor-info">Category {draft.official ? "official and protected" : "custom"}. To modify an official category, use DUPLICATE.</p>
         </div>}
         {tab === "teams" && <div className="team-grid"><div className="team-grid-head"><span>TEAM</span><span>CODE</span><span>BLUE</span><span>GREEN</span><span>WHITE</span><span>ORDER</span></div>{draft.teams.map((team, index) => <article key={team.id}><input aria-label={UI_COPY.editor.competition.teamName(team.name)} value={team.name} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, name: event.target.value } : item) })} /><input aria-label={UI_COPY.editor.competition.teamCode(team.name)} value={team.code} maxLength={4} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, code: event.target.value.toUpperCase() } : item) })} /><input aria-label={UI_COPY.editor.competition.blueColor(team.name)} type="color" value={team.color} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, color: event.target.value } : item) })} /><input aria-label={UI_COPY.editor.competition.greenColor(team.name)} type="color" value={team.accent} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, accent: event.target.value } : item) })} /><input aria-label={UI_COPY.editor.competition.thirdColor(team.name)} type="color" value={team.thirdColor} onChange={(event) => updateDraft({ ...draft, teams: draft.teams.map((item) => item.id === team.id ? { ...item, thirdColor: event.target.value } : item) })} /><span className="team-row-actions"><button aria-label={`${UI_COPY.editor.competition.moveUp} ${team.name}`} disabled={index === 0} onClick={() => moveTeam(team.id, -1)}>↑</button><button aria-label={`${UI_COPY.editor.competition.moveDown} ${team.name}`} disabled={index === draft.teams.length - 1} onClick={() => moveTeam(team.id, 1)}>↓</button><button aria-label={UI_COPY.editor.competition.removeTeamLabel(team.name)} onClick={() => removeTeam(team)}>×</button></span></article>)}<button className="add-row" onClick={() => updateDraft({ ...draft, teams: [...draft.teams, { id: `team-${Date.now()}`, name: "New Team", code: "NEW", color: draft.primaryColor, accent: draft.secondaryColor, thirdColor: "#ffffff", order: draft.teams.length }] })}>+ ADD TEAM</button></div>}
-        {tab === "drivers" && <DriverEditor category={draft} selectedId={selectedDriverId} onSelect={setSelectedDriverId} onChange={updateDraft} onDuplicate={duplicateDriver} onMove={moveDriver} />}
-        {tab === "sprites" && <div className="sprite-editor"><div className="sprite-controls"><span className="editor-label">VISUAL LIBRARY</span><p>Use the category and team colors to generate vector sprites compatible with the circuit and Live Timing.</p><span className="sprite-subheading">LIVERY PRESETS</span><div className="sprite-presets">{SPRITE_PRESETS.map((preset) => <button key={preset.id} className={draft.sprites.lateral === preset.lateral ? "active" : ""} onClick={() => updateDraft({ ...draft, sprites: { ...draft.sprites, main: preset.main, lateral: preset.lateral, thumbnail: preset.main } })}><i style={{ background: preset.color }} />{preset.label}</button>)}</div><label><span>BODY SCALE · {Math.round((draft.spriteScale ?? 1) * 100)}%</span><input type="range" min=".8" max="1.2" step=".01" value={draft.spriteScale ?? 1} onChange={(event) => updateDraft({ ...draft, spriteScale: Number(event.target.value) })} /></label><label><span>LIVE TIMING SCALE · {Math.round((draft.lateralScale ?? 1) * 100)}%</span><input type="range" min=".7" max="1.2" step=".01" value={draft.lateralScale ?? 1} onChange={(event) => updateDraft({ ...draft, lateralScale: Number(event.target.value) })} /></label></div><div className="sprite-previews"><div><span className="sprite-preview-label">TOP VIEW</span><CarPreview category={draft} driver={driver} view="main" /></div><div><span className="sprite-preview-label">LIVE TIMING</span><CarPreview category={draft} driver={driver} view="lateral" /></div></div></div>}
+        {tab === "drivers" && <DriverEditor category={draft} selectedId={selectedDriverId} onSelect={setSelectedDriverId} onChange={updateDraft} onDuplicate={duplicateDriver} onMove={moveDriver} onImportSprite={importDriverSprite} onRemoveSprite={removeDriverSprite} />}
+        {tab === "sprites" && <div className="sprite-editor"><div className="sprite-controls"><span className="editor-label">CATEGORY SPRITES</span><p>Category sprites use team colors and helmet color through the blue, green, white, red, and yellow mask pipeline. Driver overrides are managed in the Drivers view.</p><label><span>BODY SCALE · {Math.round((draft.spriteScale ?? 1) * 100)}%</span><input type="range" min=".8" max="1.2" step=".01" value={draft.spriteScale ?? 1} onChange={(event) => updateDraft({ ...draft, spriteScale: Number(event.target.value) })} /></label><label><span>LIVE TIMING SCALE · {Math.round((draft.lateralScale ?? 1) * 100)}%</span><input type="range" min=".7" max="1.2" step=".01" value={draft.lateralScale ?? 1} onChange={(event) => updateDraft({ ...draft, lateralScale: Number(event.target.value) })} /></label></div><div className="sprite-previews"><div><span className="sprite-preview-label">TOP VIEW</span><CarPreview category={draft} driver={driver} view="main" /></div><div><span className="sprite-preview-label">SIDE VIEW · LIVE TIMING</span><CarPreview category={draft} driver={driver} view="lateral" /></div></div></div>}
         {tab === "sprites" && <div className="sprite-transfer-panel"><div><strong>TOP SPRITE · CIRCUIT</strong><small>{draft.sprites.main.startsWith("data:") ? "Custom" : "Generated from the category"}</small><button onClick={() => exportSprite("main")}>EXPORT SPRITE</button><label className="import-button">IMPORT SPRITE<input type="file" accept="image/svg+xml,image/png,image/webp" onChange={(event) => importSprite("main", event)} /></label></div><div><strong>LATERAL SPRITE · LIVE TIMING</strong><small>{draft.sprites.lateral.startsWith("data:") ? "Custom" : "Generated from the category"}</small><button onClick={() => exportSprite("lateral")}>EXPORT SPRITE</button><label className="import-button">IMPORT SPRITE<input type="file" accept="image/svg+xml,image/png,image/webp" onChange={(event) => importSprite("lateral", event)} /></label></div></div>}
       </section>
-      <aside className="competition-preview"><span className="editor-label">PREVIEW</span><CarPreview category={draft} driver={driver} /><strong>{driver?.name ?? draft.name}</strong><small>{driver ? `${driver.code} · #${driver.number}` : draft.manufacturer}</small><div className="live-row-preview"><span>01</span><CarPreview category={draft} driver={driver} /><strong>{driver?.code ?? "SAI"}<small>{driver?.name ?? "Driver"}</small></strong><b>LEADER</b></div><div className={`category-validation ${errors.length ? "invalid" : "valid"}`}><strong>{errors.length ? "FIX BEFORE SAVING" : "CATEGORY VALID"}</strong>{errors.map((error) => <span key={error}>{error}</span>)}</div>{dirty && <small className="editor-dirty">● UNSAVED CHANGES</small>}{message && <p className="editor-message">{message}</p>}</aside>
+      <aside className="competition-preview"><span className="editor-label">PREVIEW</span><div className="competition-preview-views"><div><small>TOP VIEW</small><CarPreview category={draft} driver={driver} view="main" /></div><div><small>SIDE VIEW</small><CarPreview category={draft} driver={driver} view="lateral" /></div></div><strong>{driver?.name ?? draft.name}</strong><small>{driver ? `${driver.code} · #${driver.number}` : draft.manufacturer}</small><div className="live-row-preview"><span>01</span><CarPreview category={draft} driver={driver} /><strong>{driver?.code ?? "SAI"}<small>{driver?.name ?? "Driver"}</small></strong><b>LEADER</b></div><div className={`category-validation ${errors.length ? "invalid" : "valid"}`}><strong>{errors.length ? "FIX BEFORE SAVING" : "CATEGORY VALID"}</strong>{errors.map((error) => <span key={error}>{error}</span>)}</div>{dirty && <small className="editor-dirty">● UNSAVED CHANGES</small>}{message && <p className="editor-message">{message}</p>}</aside>
     </div>
-    {pendingImport && <Dialog title={UI_COPY.editor.competition.importPreview} onClose={() => setPendingImport(null)} actions={<><button onClick={() => setPendingImport(null)}>{UI_COPY.editor.competition.cancelImport}</button><button className="primary" onClick={() => { const next = [...categories, pendingImport]; setCategories(next); saveCategories(next.filter((category) => !category.official)); setSelectedId(pendingImport.id); setPendingImport(null); setMessage(UI_COPY.editor.competition.imported); }}>{UI_COPY.editor.competition.confirmImport}</button></>}><h2>{pendingImport.name}</h2><p>{pendingImport.teams.length} teams · {pendingImport.drivers.length} drivers · {pendingImport.vehicleSpec.massKg} kg</p></Dialog>}
+    {pendingImport && <Dialog title={UI_COPY.editor.competition.importPreview} onClose={() => setPendingImport(null)} actions={<><button onClick={() => setPendingImport(null)}>{UI_COPY.editor.competition.cancelImport}</button><button className="primary" onClick={() => { const next = [...categories, pendingImport]; void persistLibrary(next); setSelectedId(pendingImport.id); setPendingImport(null); setMessage(UI_COPY.editor.competition.imported); }}>{UI_COPY.editor.competition.confirmImport}</button></>}><h2>{pendingImport.name}</h2><p>{pendingImport.teams.length} teams · {pendingImport.drivers.length} drivers · {pendingImport.vehicleSpec.massKg} kg</p></Dialog>}
   </main>;
 }

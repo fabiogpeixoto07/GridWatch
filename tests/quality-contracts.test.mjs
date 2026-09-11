@@ -11,9 +11,9 @@ test("browser-only libraries restore after hydration", async () => {
   assert.match(page, /useState<CreatorCircuit\[\]>\(\[\]\)/);
   assert.match(page, /loadCreatorCircuits\(\)/);
   assert.match(page, /migrateLegacyCircuits\(legacyTracks\)/);
-  assert.match(editor, /const stored = loadCategories\(\)/);
-  assert.match(editor, /setCategories\(\[official, \.\.\.stored/);
-  assert.match(editor, /draftRepository\.load\(\)/);
+  assert.match(editor, /await readCompetitionDocument/);
+  assert.match(editor, /indexedDB\.open\(COMPETITION_DATABASE, 1\)/);
+  assert.match(editor, /loadDraft\(\)/);
 });
 
 test("custom documents use guarded, versioned storage", async () => {
@@ -26,7 +26,8 @@ test("custom documents use guarded, versioned storage", async () => {
   assert.match(tracks, /gridwatch-track-creator/);
   assert.match(tracks, /indexedDB\.open/);
   assert.match(schema, /TrackDocumentSchema/);
-  assert.match(categories, /createStorageRepository\(STORAGE_KEY, \[\], isCategoryArray\)/);
+  assert.match(categories, /gridwatch-competition-library/);
+  assert.match(categories, /writeCompetitionDocument/);
 });
 
 test("editors expose destructive-action and asset safeguards", async () => {
@@ -36,7 +37,7 @@ test("editors expose destructive-action and asset safeguards", async () => {
   assert.match(track, /cancelTransient/);
   assert.match(track, /parseDocument/);
   assert.match(track, /validateDocument/);
-  assert.match(category, /file\.size > 2_000_000/);
+  assert.match(category, /file\.size > 10_000_000/);
   assert.match(category, /isCategoryDocument/);
   assert.match(category, /useId\(\)/);
   assert.match(category, /if \(draft\.official\)/);
@@ -120,8 +121,8 @@ test("competition documents migrate to stable driver identities without destruct
   const copy = await read("app/ui-copy.ts");
   const page = await read("app/game/GameShell.tsx");
   assert.match(category, /id: string/);
-  assert.match(category, /version: 2/);
-  assert.match(category, /value\.version === 1 \|\| value\.version === 2/);
+  assert.match(category, /version: 3/);
+  assert.match(category, /value\.version === 1 \|\| value\.version === 2 \|\| value\.version === 3/);
   assert.match(category, /drivers: draft\.drivers\.map\(\(driver\) => driver\.teamId === team\.id/);
   assert.doesNotMatch(category, /drivers: draft\.drivers\.filter\(\(item\) => item\.teamId !== team\.id\)/);
   assert.doesNotMatch(category, /category\.drivers\.map\(\(driver, index\) => \(\{ \.\.\.driver, id: index/);

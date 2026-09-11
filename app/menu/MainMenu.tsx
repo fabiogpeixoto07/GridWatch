@@ -5,6 +5,7 @@ import { Brand } from "../ui/brand";
 type MainMenuProps = {
   savedSession: ChampionshipSession | null;
   circuitCount: number;
+  categoryCount: number;
   driverCount: number;
   onSingleRace: () => void;
   onSettings: () => void;
@@ -13,7 +14,8 @@ type MainMenuProps = {
   onDiscardChampionship: () => void;
 };
 
-export function MainMenu({ savedSession, circuitCount, driverCount, onSingleRace, onSettings, onChampionship, onResumeChampionship, onDiscardChampionship }: MainMenuProps) {
+export function MainMenu({ savedSession, circuitCount, categoryCount, driverCount, onSingleRace, onSettings, onChampionship, onResumeChampionship, onDiscardChampionship }: MainMenuProps) {
+  const raceUnavailable = categoryCount === 0;
   return (
     <main className="menu-shell">
       <div className="menu-grid" aria-hidden="true" />
@@ -33,7 +35,7 @@ export function MainMenu({ savedSession, circuitCount, driverCount, onSingleRace
           </aside>
         )}
         <div className="mode-options main-options">
-          <button onClick={onSingleRace} disabled={circuitCount < 1} aria-disabled={circuitCount < 1}>
+          <button onClick={onSingleRace} disabled={circuitCount < 1 || raceUnavailable} aria-disabled={circuitCount < 1 || raceUnavailable}>
             <small>01 · {UI_COPY.menu.quickEvent}</small>
             <strong>{UI_COPY.menu.singleRace}</strong>
             <span>{UI_COPY.menu.singleRaceDescription}</span>
@@ -45,7 +47,7 @@ export function MainMenu({ savedSession, circuitCount, driverCount, onSingleRace
             <span>{UI_COPY.menu.settingsDescription}</span>
             <b>{UI_COPY.navigation.openSettings} <i>→</i></b>
           </button>
-          <button onClick={onChampionship} disabled={circuitCount < 2} aria-disabled={circuitCount < 2}>
+          <button onClick={onChampionship} disabled={circuitCount < 2 || raceUnavailable} aria-disabled={circuitCount < 2 || raceUnavailable}>
             <small>02 · {UI_COPY.menu.season}</small>
             <strong>{UI_COPY.menu.championship}</strong>
             <span>{UI_COPY.menu.championshipDescription}</span>
@@ -54,9 +56,10 @@ export function MainMenu({ savedSession, circuitCount, driverCount, onSingleRace
         </div>
         {circuitCount === 0 && <p className="empty-circuit-notice" role="status">Create and save a valid circuit in Settings → Track Editor before starting a race.</p>}
         {circuitCount === 1 && <p className="empty-circuit-notice" role="status">Create one more valid circuit to unlock Championship mode.</p>}
+        {raceUnavailable && <p className="empty-circuit-notice" role="status">Create or import a competition category in Settings → Competition Editor before starting a race.</p>}
       </section>
       <footer className="menu-footer">
-        <span>{circuitCount} {UI_COPY.menu.circuits}</span><span>{driverCount} {UI_COPY.menu.aiDrivers}</span><span>{UI_COPY.menu.fixedCamera}</span>
+        <span>{circuitCount} {UI_COPY.menu.circuits}</span><span>{driverCount} {UI_COPY.menu.aiDrivers}</span><span>{categoryCount} {categoryCount === 1 ? "CATEGORY" : "CATEGORIES"}</span><span>{UI_COPY.menu.fixedCamera}</span>
       </footer>
     </main>
   );

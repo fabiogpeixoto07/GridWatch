@@ -58,8 +58,10 @@ test("browser renders and navigates both creation tools", async ({ page }) => {
   await expect(page.locator(".competition-editor-actions .primary")).toBeDisabled();
   await expect(page.getByRole("button", { name: "EXPORT COMPETITION" })).toBeVisible();
   await expect(page.getByLabel("IMPORT COMPETITION")).toBeAttached();
+  await expect(page.locator(".category-race-defaults-panel label").filter({ hasText: "DEFAULT LAPS" }).locator("select")).toHaveCSS("background-color", "rgb(247, 250, 246)");
   await page.locator(".competition-tabs").getByRole("button", { name: /SPRITES/ }).click();
-  await expect(page.locator(".sprite-presets button")).toHaveCount(4);
+  await expect(page.locator(".sprite-presets button")).toHaveCount(0);
+  await expect(page.getByText("CATEGORY SPRITES", { exact: true })).toBeVisible();
 
   await page.locator(".competition-editor-actions button").first().click();
   await page.getByRole("button", { name: /MAIN MENU/ }).click();
