@@ -1136,6 +1136,45 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
     }
     commit(next, `Edit ${name} override`);
   }
+  function updateAssetOverlay(file: File) {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") return;
+      const next = cloneDocument(document);
+      next.assetOverlay = {
+        source: reader.result,
+        position: { ...next.spectatorFrame.center },
+        scale: 1,
+        rotation: 0,
+        opacity: 0.55,
+      };
+      commit(next, "Import track overlay");
+    };
+    reader.readAsDataURL(file);
+  }
+  function updateAssetOverlayValue(field: "scale" | "rotation" | "opacity", value: number) {
+    if (!document.assetOverlay) return;
+    const next = cloneDocument(document);
+    next.assetOverlay = { ...next.assetOverlay!, [field]: value };
+    commit(next, "Edit track overlay");
+  }
+  function updateSelectedModuleEdge(
+    side: "left" | "right",
+    field: "runoff" | "kerb" | "barrier",
+    value: string,
+  ) {
+    if (!selectedModule) return;
+    const next = cloneDocument(document);
+    const module = next.modules.find((item) => item.id === selectedModule.id);
+    if (module) {
+      const fallback = next.environment;
+      const edges = module.properties?.edges ?? { left: { ...fallback }, right: { ...fallback } };
+      edges[side][field] = value as never;
+      module.properties = { ...module.properties, edges };
+    }
+    commit(next, `Edit ${side} ${field}`);
+  }
   function updateSelectedPointHandle(
     handle: "inHandle" | "outHandle",
     axis: "x" | "y",
@@ -2308,6 +2347,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               onDelete={deleteSelected}
               onParameter={updateSelectedModuleParameter}
               onProperty={updateSelectedModuleProperty}
+              onEdge={updateSelectedModuleEdge}
               onControls={(points) => {
                 const next = cloneDocument(document);
                 next.modules.find(
@@ -2343,19 +2383,9 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
               onTheme={changeTheme}
               onGrid={updateGrid}
               onGridPattern={updateGridPattern}
-              onEnvironment={(field, value) => {
-                const next = cloneDocument(document);
-                if (field === "runoff")
-                  next.environment.runoff =
-                    value as TrackDocument["environment"]["runoff"];
-                if (field === "barrier")
-                  next.environment.barrier =
-                    value as TrackDocument["environment"]["barrier"];
-                if (field === "kerb")
-                  next.environment.kerb =
-                    value as TrackDocument["environment"]["kerb"];
-                commit(next, `Edit ${field}`);
-              }}
+              onOverlayFile={updateAssetOverlay}
+              onOverlayValue={updateAssetOverlayValue}
+              onRemoveOverlay={() => { const next = cloneDocument(document); delete next.assetOverlay; commit(next, "Remove track overlay"); }}
               onFitFrame={fitSpectatorFrame}
             />
           )}
@@ -2414,6 +2444,7 @@ function ModuleInspector({
   onDelete,
   onParameter,
   onProperty,
+  onEdge,
   onControls,
 }: {
   module: TrackModule;
@@ -2422,6 +2453,7 @@ function ModuleInspector({
   onDelete: () => void;
   onParameter: (name: string, value: number) => void;
   onProperty: (name: "surface" | "kerb", value: string) => void;
+  onEdge: (side: "left" | "right", field: "runoff" | "kerb" | "barrier", value: string) => void;
   onControls: (points: NonNullable<TrackModule["controlPoints"]>) => void;
 }) {
   return (
@@ -2632,6 +2664,15 @@ function ModuleInspector({
           <option value="blue-white">Blue / white</option>
         </select>
       </label>
+      {(["left", "right"] as const).map((side) => {
+        const edge = module.properties?.edges?.[side] ?? { runoff: "grass", barrier: "guardrail", kerb: "red-white" };
+        return <section key={side} className="module-edge-settings">
+          <strong>{side === "left" ? "Left" : "Right"} track edge</strong>
+          <label>Runoff<select value={edge.runoff} onChange={(event) => onEdge(side, "runoff", event.target.value)}><option>asphalt</option><option>concrete</option><option>grass</option><option>gravel</option><option>sand</option></select></label>
+          <label>Kerbs<select value={edge.kerb} onChange={(event) => onEdge(side, "kerb", event.target.value)}><option value="none">None</option><option value="red-white">Red / white</option><option value="blue-white">Blue / white</option><option value="yellow-black">Yellow / black</option></select></label>
+          <label>Barrier<select value={edge.barrier} onChange={(event) => onEdge(side, "barrier", event.target.value)}><option value="none">None</option><option value="guardrail">Guardrail</option><option value="wall">Wall</option><option value="tire-stack">Tire stack</option><option value="fence">Fence</option></select></label>
+        </section>;
+      })}
       <div className="inspector-actions">
         <button onClick={onRotate}>Rotate 90°</button>
         <button onClick={onDuplicate}>Duplicate</button>
@@ -2754,7 +2795,9 @@ function CircuitInspector({
   onTheme,
   onGrid,
   onGridPattern,
-  onEnvironment,
+  onOverlayFile,
+  onOverlayValue,
+  onRemoveOverlay,
   onFitFrame,
 }: {
   document: TrackDocument;
@@ -2765,7 +2808,9 @@ function CircuitInspector({
     value: number,
   ) => void;
   onGridPattern: (value: "none" | "alternating" | "custom") => void;
-  onEnvironment: (field: "runoff" | "barrier" | "kerb", value: string) => void;
+  onOverlayFile: (file: File) => void;
+  onOverlayValue: (field: "scale" | "rotation" | "opacity", value: number) => void;
+  onRemoveOverlay: () => void;
   onFitFrame: () => void;
 }) {
   return (
@@ -2860,53 +2905,16 @@ function CircuitInspector({
         </select>
       </label>
       <label>
-        Runoff
-        <select
-          value={document.environment.runoff}
-          onChange={(event) =>
-            onEnvironment(
-              "runoff",
-              event.target.value as TrackDocument["environment"]["runoff"],
-            )
-          }
-        >
-          <option>grass</option>
-          <option>gravel</option>
-          <option>sand</option>
-          <option>asphalt</option>
-          <option>concrete</option>
-        </select>
+        Track overlay
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(event) => { const file = event.target.files?.[0]; if (file) onOverlayFile(file); }} />
       </label>
-      <label>
-        Kerbs
-        <select
-          value={document.environment.kerb}
-          onChange={(event) => onEnvironment("kerb", event.target.value)}
-        >
-          <option>none</option>
-          <option>red-white</option>
-          <option>blue-white</option>
-          <option>yellow-black</option>
-        </select>
-      </label>
-      <label>
-        Barrier
-        <select
-          value={document.environment.barrier}
-          onChange={(event) =>
-            onEnvironment(
-              "barrier",
-              event.target.value as TrackDocument["environment"]["barrier"],
-            )
-          }
-        >
-          <option>none</option>
-          <option>guardrail</option>
-          <option>wall</option>
-          <option>tire-stack</option>
-          <option>fence</option>
-        </select>
-      </label>
+      {document.assetOverlay && <>
+        <label>Overlay scale<input type="number" min="0.1" step="0.1" value={document.assetOverlay.scale} onChange={(event) => onOverlayValue("scale", Number(event.target.value))} /></label>
+        <label>Overlay rotation<input type="number" step="1" value={document.assetOverlay.rotation} onChange={(event) => onOverlayValue("rotation", Number(event.target.value))} /></label>
+        <label>Overlay opacity<input type="number" min="0" max="1" step="0.05" value={document.assetOverlay.opacity} onChange={(event) => onOverlayValue("opacity", Number(event.target.value))} /></label>
+        <button className="wide-button danger-text" onClick={onRemoveOverlay}>Remove track overlay</button>
+      </>}
+      <p className="inspector-hint">Runoff, kerbs, and barriers are configured independently for each module edge. Select a track piece to edit its left and right sides.</p>
       {stats.sectorLengths.length > 0 && (
         <div className="profile-list">
           <small>SECTOR LENGTHS</small>

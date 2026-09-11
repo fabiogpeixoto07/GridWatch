@@ -43,6 +43,7 @@ type GameMode = "single" | "championship";
 type GameTheme = "dark" | "light";
 const WINNER_PRESENTATION_DURATION_MS = 2_000;
 const THEME_STORAGE_KEY = "gridwatch.theme";
+const trackOverlayImages = new Map<string, HTMLImageElement>();
 const TrackCreator = lazy(() =>
   import("../track-creator/App").then((module) => ({ default: module.TrackCreator })),
 );
@@ -133,6 +134,7 @@ type CarState = {
   worldX: number | null;
   worldY: number | null;
   worldHeading: number | null;
+  towStartedAt?: number;
 };
 
 type TrackSample = {
@@ -460,6 +462,7 @@ function initialCars(gridSize: number, seed: number, totalLaps: number, drivers:
       worldX: null,
       worldY: null,
       worldHeading: null,
+      towStartedAt: undefined,
     };
   });
 }
@@ -804,8 +807,27 @@ function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, tr
   ctx.fillRect(0, 0, geometry.width, geometry.height);
 
   const project = (point: { x: number; y: number }) => worldToCanvas(point, geometry);
+  const overlay = track.trackDocument.assetOverlay;
+  if (overlay) {
+    let image = trackOverlayImages.get(overlay.source);
+    if (!image) {
+      image = new Image();
+      image.src = overlay.source;
+      trackOverlayImages.set(overlay.source, image);
+    }
+    if (image.complete && image.naturalWidth) {
+      const center = project(overlay.position);
+      const size = 200 * overlay.scale * (geometry.camera?.scale ?? 1);
+      ctx.save();
+      ctx.translate(center.x, center.y);
+      ctx.rotate(-overlay.rotation - (geometry.camera?.rotation ?? 0));
+      ctx.globalAlpha = overlay.opacity;
+      ctx.drawImage(image, -size / 2, -size / 2, size, size);
+      ctx.restore();
+    }
+  }
   // The authored surface ribbon is shared with the physical collision path, so width changes are visible immediately.
-  for (const ribbon of compiled.surfaceRibbon) {
+  for (const [ribbonIndex, ribbon] of compiled.surfaceRibbon.entries()) {
     const leftStart = project(ribbon.leftStart);
     const rightStart = project(ribbon.rightStart);
     const leftEnd = project(ribbon.leftEnd);
@@ -818,27 +840,37 @@ function drawAuthoredTrack(ctx: CanvasRenderingContext2D, geometry: Geometry, tr
     ctx.closePath();
     ctx.fillStyle = surfaceColors[ribbon.surface];
     ctx.fill();
+    const elevation = (compiled.samples[ribbonIndex]?.elevation ?? 0) + (compiled.samples[(ribbonIndex + 1) % compiled.samples.length]?.elevation ?? 0);
+    if (Math.abs(elevation) > 0.01) {
+      ctx.fillStyle = elevation > 0 ? "rgba(255,255,255,.035)" : "rgba(0,0,0,.055)";
+      ctx.fill();
+    }
   }
 
-  const strokeBoundary = (points: { x: number; y: number }[], color: string, width: number, dash?: number[]) => {
-    ctx.beginPath();
-    points.forEach((point, index) => {
-      const projected = project(point);
-      if (index === 0) ctx.moveTo(projected.x, projected.y);
-      else ctx.lineTo(projected.x, projected.y);
+  const runoffColor = (runoff: string) => runoff === "asphalt" ? palette.road : runoff === "concrete" ? palette.runoff.concrete : runoff === "gravel" ? palette.runoff.gravel : runoff === "sand" ? "#c9a86c" : palette.runoff.grass;
+  const kerbColor = (kerb: string) => kerb === "blue-white" ? "#4c8bea" : kerb === "yellow-black" ? "#d7b12e" : palette.kerbB;
+  for (let index = 0; index < compiled.samples.length; index += 1) {
+    const sample = compiled.samples[index];
+    const next = compiled.samples[(index + 1) % compiled.samples.length];
+    (["left", "right"] as const).forEach((side) => {
+      const start = side === "left" ? sample.leftBoundary : sample.rightBoundary;
+      const end = side === "left" ? next.leftBoundary : next.rightBoundary;
+      const normal = side === "left" ? sample.normal : { x: -sample.normal.x, y: -sample.normal.y };
+      const edge = sample.edges?.[side] ?? track.trackDocument.environment;
+      const outerStart = { x: start.x + normal.x * 10, y: start.y + normal.y * 10 };
+      const outerEnd = { x: end.x + normal.x * 10, y: end.y + normal.y * 10 };
+      const a = project(start); const b = project(end); const c = project(outerEnd); const d = project(outerStart);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath();
+      ctx.fillStyle = runoffColor(edge.runoff); ctx.globalAlpha = 0.82; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = edge.kerb === "none" ? palette.roadEdge : kerbColor(edge.kerb);
+      ctx.lineWidth = edge.kerb === "none" ? 2 : 4;
+      ctx.setLineDash(edge.kerb === "none" ? [] : [9, 9]); ctx.stroke(); ctx.setLineDash([]);
+      if (edge.barrier !== "none") {
+        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+        ctx.strokeStyle = palette.barrier; ctx.lineWidth = edge.barrier === "wall" ? 4 : 2.5; ctx.stroke();
+      }
     });
-    ctx.closePath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.setLineDash(dash ?? []);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  };
-  strokeBoundary(compiled.leftBoundary, palette.roadEdge, 2);
-  strokeBoundary(compiled.rightBoundary, palette.roadEdge, 2);
-  if (track.trackDocument.environment.kerb !== "none") {
-    strokeBoundary(compiled.leftBoundary, palette.kerbB, 4, [9, 9]);
-    strokeBoundary(compiled.rightBoundary, palette.kerbB, 4, [9, 9]);
   }
 
   for (const prop of track.trackDocument.props) {
@@ -1888,9 +1920,11 @@ export function GameShell() {
         const id = String(car.id);
         if (car.mechanical !== "running" || car.finishPosition !== null) {
           worldEngine.removeVehicle(id);
-          car.worldX = null;
-          car.worldY = null;
-          car.worldHeading = null;
+          if (!car.towStartedAt) {
+            car.worldX = null;
+            car.worldY = null;
+            car.worldHeading = null;
+          }
           continue;
         }
         worldEngine.setPerformanceModifier(id, car.performanceModifier + car.lapPerformanceModifier);
@@ -1924,6 +1958,18 @@ export function GameShell() {
         car.worldX = snapshot.position.x;
         car.worldY = snapshot.position.y;
         car.worldHeading = snapshot.heading;
+        const signedLateral = snapshot.lateralOffset;
+        const edgeWidth = signedLateral >= 0 ? physicalSample.widthLeft : physicalSample.widthRight;
+        const edge = signedLateral >= 0 ? physicalSample.edges?.left : physicalSample.edges?.right;
+        const beyondEdge = Math.abs(signedLateral) - edgeWidth;
+        if (beyondEdge > activeCategory.vehicleSpec.widthMeters * 0.7 && edge?.runoff === "sand") {
+          car.mechanical = "retired";
+          car.speed = 0;
+        } else if (beyondEdge > 0 && edge?.barrier !== "none" && Math.abs(snapshot.longitudinalVelocity) < 0.8) {
+          car.mechanical = "retired";
+          car.speed = 0;
+          car.towStartedAt = currentRaceTime;
+        }
       }
     } else {
       const drivingGeometry = geometryRef.current?.driving;
@@ -2051,12 +2097,16 @@ export function GameShell() {
       const x = physicalPosition?.x ?? sample.x - Math.sin(sample.angle) * lanePx;
       const y = physicalPosition?.y ?? sample.y + Math.cos(sample.angle) * lanePx;
       const heading = car.worldHeading ?? sample.angle + car.steering * 0.12;
+      const towAge = car.towStartedAt === undefined ? -1 : raceTimeRef.current - car.towStartedAt;
+      const towProgress = clamp((towAge - 5) / 1.2, 0, 1);
+      const towedX = x + Math.cos(heading + Math.PI / 2) * towProgress * 28;
+      const towedY = y + Math.sin(heading + Math.PI / 2) * towProgress * 28 - Math.sin(towProgress * Math.PI) * 24;
       const scale = clamp(geometry.width / 1000, 0.68, 1.12) * CAR_SCALE_FACTOR;
       drawCar(
         ctx,
         driverById.get(car.id)!,
-        x,
-        y,
+        towedX,
+        towedY,
         heading,
         scale,
         car.id === leaderId && car.mechanical === "running",

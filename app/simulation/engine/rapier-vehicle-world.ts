@@ -64,17 +64,11 @@ export class RapierVehicleWorld {
   }
 
   addTrackBoundaries(track: CompiledTrack) {
-    const left = new Float32Array(track.leftBoundary.flatMap((point) => [point.x, point.y]));
-    const right = new Float32Array(track.rightBoundary.flatMap((point) => [point.x, point.y]));
-    const close = (vertices: Float32Array) => {
-      const result = new Float32Array(vertices.length + 2);
-      result.set(vertices);
-      result[result.length - 2] = vertices[0];
-      result[result.length - 1] = vertices[1];
-      return result;
-    };
-    this.world.createCollider(this.rapier.ColliderDesc.polyline(close(left)).setFriction(0.4).setRestitution(0.05));
-    this.world.createCollider(this.rapier.ColliderDesc.polyline(close(right)).setFriction(0.4).setRestitution(0.05));
+    const boundaries = track.colliders.length ? track.colliders.map((collider) => collider.points) : [];
+    for (const points of boundaries) {
+      const vertices = new Float32Array(points.flatMap((point) => [point.x, point.y]));
+      this.world.createCollider(this.rapier.ColliderDesc.polyline(vertices).setFriction(0.4).setRestitution(0.05));
+    }
   }
 
   addVehicle(id: string, spec: VehicleSpec, position: Vector2, heading: number) {
@@ -128,8 +122,8 @@ export class RapierVehicleWorld {
     entry.body.setLinvel({ x: Math.cos(heading) * 2.5, y: Math.sin(heading) * 2.5 }, true);
   }
 
-  step(surfaceGrip: (position: Vector2) => number = () => 1) {
-    for (const entry of this.vehicles.values()) this.applyVehicleForces(entry, surfaceGrip(entry.body.translation()));
+  step(surfaceGrip: (position: Vector2) => number = () => 1, gradeAt: (position: Vector2) => number = () => 0) {
+    for (const entry of this.vehicles.values()) this.applyVehicleForces(entry, surfaceGrip(entry.body.translation()), gradeAt(entry.body.translation()));
     this.world.step();
   }
 
@@ -165,7 +159,7 @@ export class RapierVehicleWorld {
     this.world.free();
   }
 
-  private applyVehicleForces(entry: VehicleEntry, rawSurfaceGrip: number) {
+  private applyVehicleForces(entry: VehicleEntry, rawSurfaceGrip: number, rawGrade: number) {
     const { body, controls, spec } = entry;
     body.resetForces(true);
     body.resetTorques(true);
@@ -211,7 +205,9 @@ export class RapierVehicleWorld {
     const brakeForce = controls.brake * spec.maxBrakeForceNewtons * brakeDirection;
     const dragForce = -Math.sign(longitudinalVelocity) * spec.dragCoefficient * longitudinalVelocity * longitudinalVelocity;
     const rollingForce = -Math.sign(longitudinalVelocity) * spec.rollingResistance * spec.massKg * 9.81;
-    const longitudinalForce = clamp(engineForce + brakeForce + dragForce + rollingForce, -remainingLongitudinalGrip, remainingLongitudinalGrip);
+    // Grade is the authored rise/run along the active road sample. Positive is uphill in travel direction.
+    const gradeForce = -spec.massKg * 9.81 * clamp(rawGrade, -0.3, 0.3);
+    const longitudinalForce = clamp(engineForce + brakeForce + dragForce + rollingForce + gradeForce, -remainingLongitudinalGrip, remainingLongitudinalGrip);
 
     body.addForce({
       x: forward.x * longitudinalForce + lateral.x * lateralForce,

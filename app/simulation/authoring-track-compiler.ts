@@ -42,6 +42,12 @@ function materialFor(document: TrackDocument, sample: PathSample, length: number
   return { surface, grip };
 }
 
+function edgesFor(document: TrackDocument, sample: PathSample) {
+  const module = document.modules.find((item) => item.id === sample.moduleId);
+  const fallback = document.environment;
+  return module?.properties?.edges ?? { left: { ...fallback }, right: { ...fallback } };
+}
+
 function signedCurvature(samples: PathSample[], index: number, spacing: number) {
   const previous = samples[(index - 1 + samples.length) % samples.length];
   const next = samples[(index + 1) % samples.length];
@@ -98,6 +104,10 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
       widthRight,
       leftBoundary: { x: position.x + normal.x * widthLeft, y: position.y + normal.y * widthLeft },
       rightBoundary: { x: position.x - normal.x * widthRight, y: position.y - normal.y * widthRight },
+      elevation: sample.position.z,
+      grade: sample.tangent.z,
+      moduleId: sample.moduleId,
+      edges: edgesFor(document, sample),
       ...material,
     };
   });
@@ -147,10 +157,15 @@ export function compileAuthoringTrack(document: TrackDocument): CompiledTrack {
     }),
     gridSlots,
     sensors,
-    colliders: [
-      { id: `${document.id}-barrier-left`, side: "left", points: leftBoundary },
-      { id: `${document.id}-barrier-right`, side: "right", points: rightBoundary },
-    ],
+    colliders: (["left", "right"] as const).flatMap((side) => samples.flatMap((sample, index) => {
+      if (sample.edges?.[side].barrier === "none") return [];
+      const next = samples[(index + 1) % samples.length];
+      return [{
+        id: `${document.id}-barrier-${side}-${index}`,
+        side,
+        points: [side === "left" ? sample.leftBoundary : sample.rightBoundary, side === "left" ? next.leftBoundary : next.rightBoundary],
+      }];
+    })),
   };
 }
 

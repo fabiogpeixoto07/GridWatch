@@ -59,11 +59,12 @@ The artificial intelligence is a deterministic rules-and-state-machine system. I
 The Track Editor is a modular, document-based replacement for the retired point-loop Circuit Editor. It supports:
 
 - Reusable straights, turns, chicanes, route connections, and primary/pit/alternate paths. The Freeform tool is a guided End → Start bridge: select two open connectors on the active route and it draws a tangent-aligned road using the selected Start piece's settings; its intentional joins are permitted while unrelated road collisions remain blocked.
-- Starting grids, surface and grip zones, terrain, curbs, barriers, props, themes, and spectator framing.
+- Starting grids, surface and grip zones, terrain, per-module left/right runoff, kerbs, and barriers, props, themes, and spectator framing. Each edge configuration is compiled into the race, including collision walls only where a barrier is defined.
+- A mapped image overlay can be imported per authored track for circuit-specific visual assets; its placement, scale, rotation, and opacity are preserved in the racing view.
 - In-editor validation, geometry analysis, import/export, autosave, and a topbar browser-local track picker. Switching tracks asks whether to save or discard unsaved work, and inactive saved tracks can be permanently deleted after confirmation.
-- Direct conversion of a valid primary route into the same compiled physical track contract used by the race engine.
+- Direct conversion of a valid primary route into the same compiled physical track contract used by the race engine, including direction, grid, elevation, edge materials, kerbs, barriers, props, and overlay assets. Elevation provides both visual shading and an uphill/downhill grade force. Runoff slows cars according to its material, while sand can retire a car once 70% of its width leaves the circuit; barrier impacts leave a visible car before its tow animation moves it off-track.
 
-New tracks are stored as versioned `.track.json` documents in IndexedDB. Existing Circuit Editor saves are migrated once on load and remain recoverable from their legacy browser storage if a migration target is unavailable.
+New tracks are stored as versioned `.track.json` documents in IndexedDB. Version 3 documents persist independent edge settings and overlays, while older saves are hydrated with their existing environment as the left/right defaults. Existing Circuit Editor saves are migrated once on load and remain recoverable from their legacy browser storage if a migration target is unavailable.
 
 ### Competition editor
 

@@ -91,6 +91,22 @@ test("authoring documents compile their closed primary route, grid, surfaces, an
   assert.deepEqual(compilerModule.validateCompiledTrack(compiled), []);
 });
 
+test("authoring edge settings compile independently into race materials and collision segments", () => {
+  const document = authoringDocuments.createSampleDocument();
+  document.modules[0].properties = {
+    edges: {
+      left: { runoff: "sand", barrier: "none", kerb: "yellow-black" },
+      right: { runoff: "asphalt", barrier: "wall", kerb: "blue-white" },
+    },
+  };
+  const compiled = authoringCompiler.compileAuthoringTrack(document);
+  const samples = compiled.samples.filter((sample) => sample.moduleId === document.modules[0].id);
+  assert.ok(samples.length > 0);
+  assert.ok(samples.every((sample) => sample.edges.left.runoff === "sand" && sample.edges.right.barrier === "wall"));
+  assert.ok(compiled.colliders.every((collider) => collider.side === "right" || !collider.id.includes(document.modules[0].id)));
+  assert.deepEqual(compilerModule.validateCompiledTrack(compiled), []);
+});
+
 test("legacy custom point loops migrate into an editable modular track that compiles for racing", () => {
   const points = Array.from({ length: 12 }, (_, index) => {
     const angle = index / 12 * Math.PI * 2;
@@ -174,6 +190,19 @@ test("Rapier vehicle worlds advance deterministically from identical controls", 
   assert.ok(Number.isFinite(first.state.wheelSlipFront));
   assert.ok(Number.isFinite(first.state.wheelSlipRear));
   assert.equal(first.state.surfaceGrip, 1);
+});
+
+test("authored elevation grade contributes a physical downhill or uphill force", async () => {
+  const run = async (grade) => {
+    const world = await physics.RapierVehicleWorld.create();
+    world.addVehicle("car", vehicles.DEFAULT_FORMULA_VEHICLE_SPEC, { x: 0, y: 0 }, 0);
+    world.setControls("car", { throttle: 0, brake: 0, steering: 0 });
+    for (let step = 0; step < 120; step += 1) world.step(() => 1, () => grade);
+    const velocity = world.state("car").longitudinalVelocity;
+    world.free();
+    return velocity;
+  };
+  assert.ok(await run(-0.1) > await run(0.1));
 });
 
 test("world race engine follows a reachable speed profile and advances a physical grid deterministically", async () => {

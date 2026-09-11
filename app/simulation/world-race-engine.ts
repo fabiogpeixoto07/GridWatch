@@ -96,7 +96,10 @@ export class WorldRaceEngine {
       const states = new Map([...this.cars.keys()].map((id) => [id, this.physics.state(id)]));
       const ordered = [...this.cars.entries()].sort((left, right) => right[1].completedDistance - left[1].completedDistance);
       for (const [id, car] of ordered) this.controlVehicle(id, car, states, ordered);
-      this.physics.step((position) => this.surfaceGrip(position));
+      this.physics.step(
+        (position) => this.surfaceGrip(position),
+        (position) => this.surfaceAt(position).sample.grade ?? 0,
+      );
       this.elapsedSeconds += this.physics.timestep;
       for (const [id, car] of this.cars) this.updateProjection(car, this.physics.state(id));
     }
@@ -228,10 +231,15 @@ export class WorldRaceEngine {
     const targetSample = this.trajectory.samples[lookaheadIndex];
     const minimumTacticalOffset = -targetSample.widthRight + this.spec.widthMeters / 2 + 0.5 - targetSample.lineOffset;
     const maximumTacticalOffset = targetSample.widthLeft - this.spec.widthMeters / 2 - 0.5 - targetSample.lineOffset;
-    const desiredOffset = clamp(tacticalOffset, minimumTacticalOffset, maximumTacticalOffset);
+    const escaping = Math.abs(car.errorOffset) > 0.1;
+    const desiredOffset = escaping
+      ? clamp(tacticalOffset, -targetSample.widthRight - 14, targetSample.widthLeft + 14)
+      : clamp(tacticalOffset, minimumTacticalOffset, maximumTacticalOffset);
     const lateralRate = car.phase === "attacking" || car.phase === "side-by-side" ? 3.4 : car.phase === "recovering" ? 4.2 : 2.25;
     car.commandedOffset += clamp(desiredOffset - car.commandedOffset, -lateralRate * this.physics.timestep, lateralRate * this.physics.timestep);
-    const targetOffset = clamp(car.commandedOffset, minimumTacticalOffset, maximumTacticalOffset);
+    const targetOffset = escaping
+      ? clamp(car.commandedOffset, -targetSample.widthRight - 14, targetSample.widthLeft + 14)
+      : clamp(car.commandedOffset, minimumTacticalOffset, maximumTacticalOffset);
     const targetPosition = {
       x: targetSample.position.x + targetSample.normal.x * targetOffset,
       y: targetSample.position.y + targetSample.normal.y * targetOffset,
@@ -253,6 +261,12 @@ export class WorldRaceEngine {
       targetSpeed *= 1 + slipstream;
     }
     if (car.attackSide !== 0) targetSpeed *= 1.025 + car.driver.overtaking * 0.00008;
+    const surface = this.surfaceAt(state.position);
+    if (surface.outside) {
+      if (surface.runoff === "asphalt" || surface.runoff === "concrete") targetSpeed *= 0.95;
+      else if (surface.runoff === "grass" || surface.runoff === "gravel") targetSpeed *= 0.9;
+      else targetSpeed *= 0.55;
+    }
     car.targetSpeed = targetSpeed;
     const speedError = targetSpeed - speed;
     const throttle = this.elapsedSeconds < car.launchDelay ? 0 : speedError > 0 ? clamp(speedError / 9, 0, 1) : 0;
@@ -319,13 +333,22 @@ export class WorldRaceEngine {
   }
 
   private surfaceGrip(position: Vector2) {
+    const surface = this.surfaceAt(position);
+    if (!surface.outside) return surface.sample.grip;
+    if (surface.runoff === "asphalt" || surface.runoff === "concrete") return surface.sample.grip;
+    if (surface.runoff === "grass" || surface.runoff === "gravel") return surface.sample.grip * 0.7;
+    return surface.sample.grip * 0.35;
+  }
+
+  private surfaceAt(position: Vector2) {
     const index = this.nearestSampleIndex(position, 0);
     const sample = this.track.samples[index];
-    const lateral = Math.abs(dot({ x: position.x - sample.position.x, y: position.y - sample.position.y }, sample.normal));
-    const edge = Math.max(sample.widthLeft, sample.widthRight);
-    if (lateral <= edge) return sample.grip;
-    if (lateral <= edge + 1.5) return 0.78;
-    return 0.46;
+    const lateralOffset = dot({ x: position.x - sample.position.x, y: position.y - sample.position.y }, sample.normal);
+    const lateral = Math.abs(lateralOffset);
+    const left = lateralOffset >= 0;
+    const edgeWidth = left
+      ? sample.widthLeft : sample.widthRight;
+    return { sample, outside: lateral > edgeWidth, runoff: (left ? sample.edges?.left : sample.edges?.right)?.runoff ?? "grass" };
   }
 
   private requireCar(id: string) {

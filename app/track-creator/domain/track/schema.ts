@@ -22,14 +22,18 @@ const properties = z.object({
     .optional(),
   grip: positive.optional(),
   widthMeters: positive.optional(),
-  kerb: z.enum(["none", "red-white", "blue-white"]).optional(),
+  kerb: z.enum(["none", "red-white", "blue-white", "yellow-black"]).optional(),
+  edges: z.object({
+    left: z.object({ runoff: z.enum(["grass", "gravel", "sand", "asphalt", "concrete"]), barrier: z.enum(["none", "guardrail", "wall", "tire-stack", "fence"]), kerb: z.enum(["none", "red-white", "blue-white", "yellow-black"]) }),
+    right: z.object({ runoff: z.enum(["grass", "gravel", "sand", "asphalt", "concrete"]), barrier: z.enum(["none", "guardrail", "wall", "tire-stack", "fence"]), kerb: z.enum(["none", "red-white", "blue-white", "yellow-black"]) }),
+  }).optional(),
 });
 const connector = z.object({
   moduleId: id,
   connectorId: id,
 });
 export const TrackDocumentSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   minimumClearanceMeters: positive.optional(),
   id,
   metadata: z.object({
@@ -198,6 +202,7 @@ export const TrackDocumentSchema = z.object({
       kerb: z.enum(["none", "red-white", "blue-white", "yellow-black"]),
     })
     .default({ runoff: "grass", barrier: "guardrail", kerb: "red-white" }),
+  assetOverlay: z.object({ source: z.string().min(1), position: vec2, scale: positive, rotation: number, opacity: number.min(0).max(1) }).optional(),
   pitBoxes: z
     .array(
       z.object({

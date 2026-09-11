@@ -16,7 +16,7 @@ export function id(prefix: string): string {
 export function createEmptyDocument(): TrackDocument {
   const now = new Date().toISOString();
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: id("track"),
     metadata: {
       name: "Untitled Circuit",
@@ -219,15 +219,22 @@ export function createControlPoint(point: {
 }
 
 export function hydrateDocument(document: TrackDocument): TrackDocument {
+  const environment = document.environment ?? { runoff: "grass", barrier: "guardrail", kerb: "red-white" };
   return {
     ...document,
+    schemaVersion: Math.max(3, document.schemaVersion),
     zones: document.zones ?? [],
     props: document.props ?? [],
-    environment: document.environment ?? {
-      runoff: "grass",
-      barrier: "guardrail",
-      kerb: "red-white",
-    },
+    environment,
+    modules: (document.modules ?? []).map((module) => ({
+      ...module,
+      properties: {
+        ...module.properties,
+        edges: module.properties?.edges ?? {
+          left: { ...environment }, right: { ...environment },
+        },
+      },
+    })),
     terrain: document.terrain ?? createTerrain(),
     pitBoxes: document.pitBoxes ?? [],
     paths: (document.paths ?? []).map((path) => ({

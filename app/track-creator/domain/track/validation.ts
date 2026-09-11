@@ -255,7 +255,7 @@ function validateCore(document: TrackDocument): ValidationReport {
       );
   });
   const occupied = new Set<string>();
-  if (document.schemaVersion !== 1 && document.schemaVersion !== 2)
+  if (document.schemaVersion !== 1 && document.schemaVersion !== 2 && document.schemaVersion !== 3)
     issues.push(
       issue(
         "schema.unsupported",

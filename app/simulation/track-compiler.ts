@@ -1,4 +1,5 @@
 import type { TrackControlPoint, TrackDocumentV2, TrackSurface } from "../domain/track-document.js";
+import type { TrackEdgeEnvironment } from "../track-creator/domain/track/types.js";
 
 export type Vector2 = { x: number; y: number };
 
@@ -15,6 +16,10 @@ export type CompiledTrackSample = {
   rightBoundary: Vector2;
   surface: TrackSurface;
   grip: number;
+  elevation?: number;
+  grade?: number;
+  moduleId?: string;
+  edges?: { left: TrackEdgeEnvironment; right: TrackEdgeEnvironment };
 };
 
 export type CompiledTrack = {
@@ -236,6 +241,6 @@ export function validateCompiledTrack(track: CompiledTrack) {
   }
   if (!track.sensors.some((sensor) => sensor.kind === "start-finish")) issues.push("Compiled track has no start/finish sensor.");
   if (track.surfaceRibbon.length !== track.samples.length) issues.push("Surface ribbon is incomplete.");
-  if (track.colliders.length !== 2 || track.colliders.some((collider) => collider.points.length !== track.samples.length)) issues.push("Physics collider generation is incomplete.");
+  if (track.colliders.some((collider) => collider.points.length < 2)) issues.push("Physics collider generation contains an invalid barrier segment.");
   return issues;
 }

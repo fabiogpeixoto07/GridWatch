@@ -146,8 +146,16 @@ export interface TrackPropertyOverride {
   surface?: "asphalt" | "concrete" | "gravel" | "sand" | "grass";
   grip?: number;
   widthMeters?: number;
-  kerb?: "none" | "red-white" | "blue-white";
+  kerb?: KerbType;
+  edges?: TrackEdgeSettings;
 }
+
+export type RunoffType = "grass" | "gravel" | "sand" | "asphalt" | "concrete";
+export type BarrierType = "none" | "guardrail" | "wall" | "tire-stack" | "fence";
+export type KerbType = "none" | "red-white" | "blue-white" | "yellow-black";
+export interface TrackEdgeEnvironment { runoff: RunoffType; barrier: BarrierType; kerb: KerbType; }
+export interface TrackEdgeSettings { left: TrackEdgeEnvironment; right: TrackEdgeEnvironment; }
+export interface TrackAssetOverlay { source: string; position: Vec2; scale: number; rotation: number; opacity: number; }
 
 export interface ThemeReference {
   id: string;
@@ -178,9 +186,9 @@ export interface TrackProp {
 }
 
 export interface EnvironmentSettings {
-  runoff: "grass" | "gravel" | "sand" | "asphalt" | "concrete";
-  barrier: "none" | "guardrail" | "wall" | "tire-stack" | "fence";
-  kerb: "none" | "red-white" | "blue-white" | "yellow-black";
+  runoff: RunoffType;
+  barrier: BarrierType;
+  kerb: KerbType;
 }
 
 export interface TrackZone {
@@ -220,6 +228,7 @@ export interface TrackDocument {
   terrain?: TerrainHeightmap;
   props: TrackProp[];
   environment: EnvironmentSettings;
+  assetOverlay?: TrackAssetOverlay;
   pitBoxes: PitBox[];
 }
 

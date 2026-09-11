@@ -23,6 +23,8 @@ import { raceCameraLayout } from "./raceCamera.js";
 import { resolvedFacility } from "../domain/track/catalog.js";
 import { getThemePalette } from "../domain/track/themes.js";
 
+const overlayImages = new Map<string, HTMLImageElement>();
+
 export interface ViewportState {
   center: Vec2;
   zoom: number;
@@ -275,6 +277,25 @@ export function CanvasViewport(props: CanvasViewportProps) {
       context.fillRect(0, 0, width, height);
     }
     drawTerrain(context, toScreen);
+    const overlay = props.document.assetOverlay;
+    if (overlay) {
+      let image = overlayImages.get(overlay.source);
+      if (!image) {
+        image = new Image();
+        image.src = overlay.source;
+        overlayImages.set(overlay.source, image);
+      }
+      if (image.complete && image.naturalWidth) {
+        const center = toScreen(overlay.position);
+        const size = 200 * overlay.scale * view.zoom;
+        context.save();
+        context.translate(center.x, center.y);
+        context.rotate(-overlay.rotation - view.rotation);
+        context.globalAlpha = overlay.opacity;
+        context.drawImage(image, -size / 2, -size / 2, size, size);
+        context.restore();
+      }
+    }
     drawGrid(context, width, height);
     const pitGeometries = props.document.paths
       .filter((path) => path.kind === "pit" && path.sourceModuleIds.length)
@@ -300,14 +321,15 @@ export function CanvasViewport(props: CanvasViewportProps) {
       const points = path.leftBoundary.concat(
         [...path.rightBoundary].reverse(),
       );
-      if (!isPit && props.document.environment.runoff !== "grass")
-        for (const boundary of [path.leftBoundary, path.rightBoundary])
+      const edges = module.properties?.edges ?? { left: props.document.environment, right: props.document.environment };
+      if (!isPit)
+        for (const [side, boundary] of [["left", path.leftBoundary], ["right", path.rightBoundary]] as const)
           drawPathLine(
             context,
             boundary,
             toScreen,
-            palette.runoff[props.document.environment.runoff],
-            view.zoom * 5,
+            palette.runoff[edges[side].runoff],
+            view.zoom * 10,
             false,
           );
       context.fillStyle = surface ? palette.runoff[surface] : palette.road;
@@ -319,8 +341,10 @@ export function CanvasViewport(props: CanvasViewportProps) {
       }
       context.fill(path2D(points, toScreen));
       context.restore();
-      if (!isPit && props.document.environment.barrier !== "none") {
+      if (!isPit) {
         for (const sign of [-1, 1]) {
+          const side = sign > 0 ? "left" : "right";
+          if (edges[side].barrier === "none") continue;
           const boundary = path.samples.map((sample) => {
             const magnitude =
               Math.hypot(sample.tangent.x, sample.tangent.y) || 1;
@@ -347,12 +371,12 @@ export function CanvasViewport(props: CanvasViewportProps) {
             toScreen,
             palette.barrier,
             Math.max(1, view.zoom * 0.25),
-            props.document.environment.barrier !== "wall",
+            edges[side].barrier !== "wall",
             outsidePitJunction,
           );
         }
       }
-      for (const boundary of [path.leftBoundary, path.rightBoundary]) {
+      for (const [side, boundary] of [["left", path.leftBoundary], ["right", path.rightBoundary]] as const) {
         drawPathLine(
           context,
           boundary,
@@ -362,9 +386,7 @@ export function CanvasViewport(props: CanvasViewportProps) {
           false,
           outsidePitJunction,
         );
-        const kerb =
-          module.properties?.kerb ??
-          (isPit ? "none" : props.document.environment.kerb);
+        const kerb = isPit ? "none" : edges[side].kerb;
         if (kerb !== "none") {
           const colors =
             kerb === "blue-white"
