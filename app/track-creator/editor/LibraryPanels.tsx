@@ -68,15 +68,8 @@ export function ModulePalette({
   selected?: string;
   disabled?: boolean;
 }) {
-  const [search, setSearch] = useState("");
   return (
     <section className="catalog" aria-label="Module catalog">
-      <input
-        aria-label="Search modules"
-        placeholder="Search 50 entries…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
       {[
         "Basic geometry",
         "Width & shape",
@@ -86,14 +79,13 @@ export function ModulePalette({
       ].map((category) => (
         <details
           key={category}
-          open={search || category === "Basic geometry" ? true : undefined}
+          open={category === "Basic geometry" ? true : undefined}
         >
           <summary>{category}</summary>
           {CATALOG.filter(
             (entry) =>
               entry.category === category &&
-              entry.id !== "loop-connector" &&
-              entry.label.toLowerCase().includes(search.toLowerCase()),
+              entry.id !== "loop-connector",
           ).map((entry) => (
             <button
               className={`module-button ${selected === entry.id ? "selected" : ""}`}
