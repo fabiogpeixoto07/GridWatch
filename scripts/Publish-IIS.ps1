@@ -205,6 +205,18 @@ function Install-ProjectDependencies {
 function Ensure-IIS {
   Write-Step "Verificando e instalando os componentes do IIS"
 
+  # Do not re-run Windows optional-feature servicing on every publication. On
+  # developer workstations that operation can wait for the servicing stack even
+  # when IIS is already healthy. Keep the installation path below for hosts
+  # where the WebAdministration module is not available yet.
+  if (Get-Module -ListAvailable -Name WebAdministration) {
+    Import-Module WebAdministration -SkipEditionCheck -ErrorAction Stop
+    if (Get-Command Get-Website -ErrorAction SilentlyContinue) {
+      Write-Host "IIS ja esta disponivel; mantendo os componentes instalados." -ForegroundColor DarkGray
+      return
+    }
+  }
+
   if (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue) {
     $features = @(
       "Web-Server",
