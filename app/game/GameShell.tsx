@@ -236,7 +236,7 @@ function buildCompiledGeometry(
   const sine = Math.sin(rotation);
   const project = (position: { x: number; y: number }) => ({
     x: screenX + ((position.x - centerX) * cosine + (position.y - centerY) * sine) * scale,
-    y: screenY + (-(position.x - centerX) * sine + (position.y - centerY) * cosine) * scale,
+    y: screenY - (-(position.x - centerX) * sine + (position.y - centerY) * cosine) * scale,
   });
   const samples = track.samples.map((sample, index) => {
     const point = project(sample.position);
@@ -294,14 +294,20 @@ function worldToCanvas(position: { x: number; y: number }, geometry: Geometry) {
     const sine = Math.sin(rotation);
     return {
       x: screenX + ((position.x - centerX) * cosine + (position.y - centerY) * sine) * scale,
-      y: screenY + (-(position.x - centerX) * sine + (position.y - centerY) * cosine) * scale,
+      y: screenY - (-(position.x - centerX) * sine + (position.y - centerY) * cosine) * scale,
     };
   }
   const { minX, maxX, minY, maxY } = geometry.worldBounds;
   return {
     x: (0.035 + (position.x - minX) / Math.max(0.0001, maxX - minX) * 0.93) * geometry.width,
-    y: (0.045 + (position.y - minY) / Math.max(0.0001, maxY - minY) * 0.89) * geometry.height,
+    y: (0.045 + (maxY - position.y) / Math.max(0.0001, maxY - minY) * 0.89) * geometry.height,
   };
+}
+
+function worldHeadingToCanvas(position: { x: number; y: number }, heading: number, geometry: Geometry) {
+  const point = worldToCanvas(position, geometry);
+  const tip = worldToCanvas({ x: position.x + Math.cos(heading), y: position.y + Math.sin(heading) }, geometry);
+  return Math.atan2(tip.y - point.y, tip.x - point.x);
 }
 
 function initialCars(gridSize: number, seed: number, totalLaps: number, drivers: Driver[] = DRIVERS, mechanicalFailureChancePercent = 12): CarState[] {
@@ -1816,7 +1822,7 @@ export function GameShell() {
         const slot = geometry.compiled!.gridSlots[index];
         if (!slot) return;
         const point = worldToCanvas(slot.position, geometry);
-        drawCar(ctx, driver, point.x, point.y, slot.heading, clamp(geometry.width / 1000, .68, 1.12) * CAR_SCALE_FACTOR, false, "running", raceTimeRef.current, null);
+        drawCar(ctx, driver, point.x, point.y, worldHeadingToCanvas(slot.position, slot.heading, geometry), clamp(geometry.width / 1000, .68, 1.12) * CAR_SCALE_FACTOR, false, "running", raceTimeRef.current, null);
       });
     }
 
@@ -1832,7 +1838,9 @@ export function GameShell() {
       const physicalPosition = car.worldX === null || car.worldY === null ? null : worldToCanvas({ x: car.worldX, y: car.worldY }, geometry);
       const x = physicalPosition?.x ?? sample.x - Math.sin(sample.angle) * lanePx;
       const y = physicalPosition?.y ?? sample.y + Math.cos(sample.angle) * lanePx;
-      const heading = car.worldHeading ?? sample.angle + car.steering * 0.12;
+      const heading = car.worldHeading === null
+        ? sample.angle + car.steering * 0.12
+        : worldHeadingToCanvas({ x: car.worldX!, y: car.worldY! }, car.worldHeading, geometry);
       const towAge = car.towStartedAt === undefined ? -1 : raceTimeRef.current - car.towStartedAt;
       const towProgress = clamp((towAge - 5) / 1.2, 0, 1);
       const towedX = x + Math.cos(heading + Math.PI / 2) * towProgress * 28;
