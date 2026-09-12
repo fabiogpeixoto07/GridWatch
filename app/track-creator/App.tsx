@@ -48,6 +48,7 @@ import {
 } from "./domain/track/modules.js";
 import { diagnostics, validateDocument } from "./domain/track/validation.js";
 import { THEME_PACKS } from "./domain/track/themes.js";
+import { convertRasterToTrack } from "./domain/track/image-layout.js";
 import type {
   MarkerType,
   TrackDocument,
@@ -171,6 +172,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
   const [selectedZoneId, setSelectedZoneId] = useState<string>();
   const [spectatorPreview, setSpectatorPreview] = useState(false);
   const [notice, setNotice] = useState("Ready");
+  const [imageConversionBusy, setImageConversionBusy] = useState(false);
   const [activeRouteId, setActiveRouteId] = useState("primary");
   const [catalogAction, setCatalogAction] = useState<string>();
   const [catalogSettings, setCatalogSettings] = useState(
@@ -192,6 +194,7 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
   documentRef.current = document;
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
 
@@ -1227,6 +1230,56 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
     next.assetOverlay = { ...next.assetOverlay!, [field]: value };
     commit(next, "Edit track overlay");
   }
+  async function convertImageToLayout(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setNotice("Choose a PNG, JPEG, or WebP image to convert.");
+      return;
+    }
+    setImageConversionBusy(true);
+    setNotice(`Tracing black layout from ${file.name}…`);
+    let bitmap: ImageBitmap | undefined;
+    try {
+      bitmap = await createImageBitmap(file);
+      const maxDimension = 768;
+      const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(9, Math.round(bitmap.width * scale));
+      const height = Math.max(9, Math.round(bitmap.height * scale));
+      const canvas = typeof OffscreenCanvas !== "undefined"
+        ? new OffscreenCanvas(width, height)
+        : window.document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+      if (!context) throw new Error("Could not prepare the image for tracing.");
+      context.clearRect(0, 0, width, height);
+      context.drawImage(bitmap, 0, 0, width, height);
+      const pixels = context.getImageData(0, 0, width, height);
+      const result = convertRasterToTrack({ width, height, data: pixels.data });
+      const source = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => typeof reader.result === "string"
+          ? resolve(reader.result)
+          : reject(new Error("Could not retain the source image."));
+        reader.onerror = () => reject(reader.error ?? new Error("Could not read the source image."));
+        reader.readAsDataURL(file);
+      });
+      result.document.assetOverlay = {
+        source,
+        position: { ...result.document.spectatorFrame.center },
+        scale: 1,
+        rotation: 0,
+        opacity: 0.22,
+      };
+      openDocument(result.document, `Converted ${file.name}: ${result.stats.modules} road pieces`);
+      setDirty(true);
+      setNotice(`Converted ${file.name}. Add Start / Finish and place the grid manually.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Image conversion failed");
+    } finally {
+      bitmap?.close();
+      setImageConversionBusy(false);
+    }
+  }
   function updateSelectedModuleEdge(
     side: "left" | "right",
     field: "runoff" | "kerb" | "barrier",
@@ -1408,6 +1461,12 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
           </button>
           <button onClick={() => downloadDocument(document)}>Export</button>
           <button onClick={() => fileInputRef.current?.click()}>Import</button>
+          <button
+            disabled={imageConversionBusy}
+            onClick={() => imageInputRef.current?.click()}
+          >
+            {imageConversionBusy ? "Converting…" : "Convert Image to Layout"}
+          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -1416,6 +1475,17 @@ export function TrackCreator({ onBack, onSaved }: TrackCreatorProps) {
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void importFile(file);
+              event.target.value = "";
+            }}
+          />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void convertImageToLayout(file);
               event.target.value = "";
             }}
           />
